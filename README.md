@@ -47,12 +47,30 @@ units = bundle["units"]  # citation/licence in bundle["citation"], bundle["licen
 
 Study PDF/`.docx` parsers stay in consumer packages.
 
+## Pedagogical notebooks
+
+Colab-ready notebooks walk Access → Assess → Address with diagnostic plots
+(synthetic data by default; optional public open-data loaders):
+
+| Notebook | Topic |
+|----------|--------|
+| [00 Access](notebooks/00_access.ipynb) | Units and switchable sources |
+| [01 Assess](notebooks/01_assess.ipynb) | Assess without the question |
+| [02 Extract](notebooks/02_extract.ipynb) | Checkpoints and quote support |
+| [03 Cluster](notebooks/03_cluster.ipynb) | Frozen k-means, lenses, PCA view |
+| [04 Weight](notebooks/04_weight.ipynb) | Document weighting |
+| [05 Multiverse](notebooks/05_multiverse.ipynb) | Variance shares |
+| [06 Validate](notebooks/06_validate.ipynb) | κ, sheets, evidence pack |
+| [07 End-to-end](notebooks/07_end_to_end.ipynb) | Synthetic smoke experiment |
+
+See [SETUP.md](SETUP.md). Regenerate with `python scripts/build_notebooks.py`.
+
 ## Synthetic validation (no corpora in git)
 
 ```bash
 pip install -e ".[dev]"
 multilogue-validate --out outputs/validation_smoke --verbose
-pytest tests/test_experiment.py tests/test_access.py -q
+pytest tests/test_experiment.py tests/test_access.py tests/test_notebooks_smoke.py -q
 ```
 
 Outputs go under gitignored `outputs/`. Downloads go under the Access cache, not the repo.
@@ -60,7 +78,8 @@ Outputs go under gitignored `outputs/`. Downloads go under the Access cache, not
 ## Docs
 
 - [Methodology](docs/methodology.md) — shared analytic method
-- [Migration](docs/migration.md) — how `dialogue_formats` and `pub_dialogue` should depend on this package
+- [Migration](docs/migration.md) — how consumers should depend on this package
+- [SETUP.md](SETUP.md) — notebooks and Colab
 
 ## Non-goals
 
