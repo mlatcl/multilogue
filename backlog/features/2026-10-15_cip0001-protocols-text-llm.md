@@ -1,7 +1,7 @@
 ---
 id: "2026-10-15_cip0001-protocols-text-llm"
 title: "Implement protocols, text helpers, StageRunner and replay clients"
-status: "Ready"
+status: "Completed"
 priority: "High"
 created: "2026-10-15"
 last_updated: "2026-10-15"
@@ -22,9 +22,9 @@ Port and generalise Unit/Phrase contracts, text utilities, StageRunner, ReplayCl
 
 ## Acceptance Criteria
 
-- [ ] FakeClient tests cover resume, fingerprint supersede, replay miss
-- [ ] `quote_support` behaviour preserved
-- [ ] Optional extras `multilogue[openai]` and `multilogue[litellm]` declared
+- [x] FakeClient tests cover resume, fingerprint supersede, replay miss
+- [x] `quote_support` behaviour preserved
+- [x] Optional extras `multilogue[openai]` and `multilogue[litellm]` declared
 
 ## Related
 

@@ -1,3 +1,11 @@
+# Python / local env
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+dist/
+build/
 
 # VibeSafe System Files (Auto-added during installation)
 # These are VibeSafe infrastructure - not your project content
