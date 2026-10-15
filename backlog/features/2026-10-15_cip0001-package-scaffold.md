@@ -1,7 +1,7 @@
 ---
 id: "2026-10-15_cip0001-package-scaffold"
 title: "Scaffold multilogue package, pyproject, README, tests layout"
-status: "In Progress"
+status: "Completed"
 priority: "High"
 created: "2026-10-15"
 last_updated: "2026-10-15"
@@ -22,9 +22,9 @@ Add `pyproject.toml`, empty/stub `multilogue/` modules, `tests/`, and a real REA
 
 ## Acceptance Criteria
 
-- [ ] `pip install -e ".[dev]"` works
-- [ ] README states AAA contract and what stays in consumers
-- [ ] Package importable as `import multilogue`
+- [x] `pip install -e ".[dev]"` works
+- [x] README states AAA contract and what stays in consumers
+- [x] Package importable as `import multilogue`
 
 ## Related
 
