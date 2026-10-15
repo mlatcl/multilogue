@@ -20,6 +20,19 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Synthetic validation (no real dialogue data)
+
+This repo must not contain participant transcripts or dialogue PDFs. Validation uses in-memory synthetic units:
+
+```bash
+pip install -e ".[dev]"
+multilogue-validate --out outputs/validation_smoke --verbose
+# or: python -m multilogue.experiment --out outputs/validation_smoke
+pytest tests/test_experiment.py -q
+```
+
+Outputs go under gitignored `outputs/`. The phrase bank and `FakeClient` live in `multilogue/dummy.py`.
+
 ## Docs
 
 - [Methodology](docs/methodology.md) — shared analytic method
@@ -27,4 +40,4 @@ pytest
 
 ## Non-goals
 
-Multilogue does not ship PDF/`.docx` parsers, study prompts, grounds taxonomies, or paper headline metrics. Those stay in consumer packages.
+Multilogue does not ship PDF/`.docx` parsers, study prompts, grounds taxonomies, or paper headline metrics. Those stay in consumer packages. No real dialogue corpora are stored here.

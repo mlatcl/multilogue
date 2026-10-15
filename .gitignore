@@ -7,6 +7,12 @@ __pycache__/
 dist/
 build/
 
+# Generated artefacts (never commit corpora or run outputs)
+data/
+outputs/
+scratch/
+experiments/outputs/
+
 # VibeSafe System Files (Auto-added during installation)
 # These are VibeSafe infrastructure - not your project content
 
