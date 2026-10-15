@@ -1,7 +1,7 @@
 ---
 id: "2026-10-15_cip0001-extract-cluster-weight"
 title: "Implement generic extract, frozen cluster/lenses, document weighting"
-status: "Ready"
+status: "Completed"
 priority: "High"
 created: "2026-10-15"
 last_updated: "2026-10-15"
@@ -22,10 +22,10 @@ Generic phrase extraction, Embedder + frozen k-means + lens helpers, and documen
 
 ## Acceptance Criteria
 
-- [ ] Extract accepts kind/template/sentinel and optional quote threshold
-- [ ] Frozen assignments round-trip when phrase ids match
-- [ ] `group_compare` has no hard-coded chatbot/workshop columns
-- [ ] Synthetic tests pass without API
+- [x] Extract accepts kind/template/sentinel and optional quote threshold
+- [x] Frozen assignments round-trip when phrase ids match
+- [x] `group_compare` has no hard-coded chatbot/workshop columns
+- [x] Synthetic tests pass without API
 
 ## Related
 
