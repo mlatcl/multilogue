@@ -1,7 +1,7 @@
 ---
 id: "2026-10-15_cip0001-multiverse-validate-report"
 title: "Implement multiverse callbacks, validation helpers, evidence pack"
-status: "Ready"
+status: "Completed"
 priority: "High"
 created: "2026-10-15"
 last_updated: "2026-10-15"
@@ -22,9 +22,9 @@ Callback multiverse + variance decomposition, κ/rank agreement, sheet sampling,
 
 ## Acceptance Criteria
 
-- [ ] `enumerate_configurations` / `run_multiverse` / `variance_decomposition` tested
-- [ ] No paper ℓ metrics inside multilogue
-- [ ] Evidence pack accepts generic grouping columns
+- [x] `enumerate_configurations` / `run_multiverse` / `variance_decomposition` tested
+- [x] No paper ℓ metrics inside multilogue
+- [x] Evidence pack accepts generic grouping columns
 
 ## Related
 
