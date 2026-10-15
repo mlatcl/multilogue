@@ -6,7 +6,7 @@ Multilogue packages the reusable analytic method shared by public-dialogue studi
 
 | Stage | Responsibility in multilogue | Belongs in consumers |
 |-------|------------------------------|----------------------|
-| **Access** | Unit / Phrase contracts only | PDF chunking, `.docx` parsers, metadata joins |
+| **Access** | Unit / Phrase contracts; optional pods-style loaders for **public** civic corpora (`multilogue.access.load`) | PDF/`.docx` parsers and private study I/O |
 | **Assess** | Size/coverage/vocabulary helpers with no LLM | Corpus-specific quality plots |
 | **Address** | Extract, embed, cluster, weight, multiverse, validation scaffolding | Study prompts, grounds, cross-cutting, temporal ℓ |
 
@@ -26,7 +26,8 @@ Model stages run through `StageRunner`: append-only JSONL checkpoints keyed by i
 
 ## Non-goals
 
-- Source-format parsers
+- Study PDF/`.docx` parsers (public open-data CSV/JSON/TSV→Unit adapters are allowed under Access)
 - Prompts, taxonomies, local identifying names
 - Paper-specific headline metrics (AI distinctiveness, format experience gaps, etc.)
 - Runtime dependency on the fynesse install stubs
+- Shipping private dialogue corpora in the repository

@@ -1,0 +1,4 @@
+id	document_id	sentence_nr	content	code	title/text	curated/single	dataset	url
+0	B1	1	Neue Radwege in der Innenstadt.	mpos	title	curated	CD_B	https://example.test/1
+1	B1	2	Die Fahrbahn ist zu eng für Autos und Fahrräder.	premise	text	curated	CD_B	https://example.test/1
+2	B2	1	Bessere Beleuchtung an der Brücke.	mpos	text	curated	CD_B	https://example.test/2

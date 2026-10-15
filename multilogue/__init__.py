@@ -1,5 +1,7 @@
 """multilogue — reusable Access→Assess→Address dialogue methodology."""
 
+from . import access
+from .access import list_sources, load, load_units
 from .dummy import FakeClient, make_units
 from .experiment import run_validation_experiment
 from .llm import LogClient, ReplayClient, ReplayMiss, StageRunner
@@ -19,11 +21,15 @@ __all__ = [
     "ReplayMiss",
     "StageRunner",
     "Unit",
+    "access",
     "doc_profile",
     "enumerate_configurations",
     "get_list",
     "group_compare",
     "kappa",
+    "list_sources",
+    "load",
+    "load_units",
     "make_units",
     "parse_json",
     "quote_support",

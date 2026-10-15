@@ -11,7 +11,7 @@ This repository is governed with VibeSafe. Design precedes code:
 | **HOW** | Design | [`cip/cip0001.md`](cip/cip0001.md) |
 | **DO** | Implementation tasks | [`backlog/`](backlog/) |
 
-CIP-0001 defines the package boundaries relative to `ai-dialogue-formats` and `pub-dialogue`. Fynesse informs AAA philosophically; multilogue does not depend on fynesse at runtime.
+CIP-0001 defines the package boundaries relative to `ai-dialogue-formats` and `pub_dialogue`. CIP-0002 adds pods-style Access loaders for public civic corpora. Fynesse informs AAA philosophically; multilogue does not depend on fynesse at runtime.
 
 ## Install
 
@@ -20,18 +20,42 @@ pip install -e ".[dev]"
 pytest
 ```
 
-## Synthetic validation (no real dialogue data)
+## Access: switchable public corpora
 
-This repo must not contain participant transcripts or dialogue PDFs. Validation uses in-memory synthetic units:
+Load public civic text as `Unit` lists (pods-style named sources). Cache under `MULTILOGUE_DATAPATH` or `~/.cache/multilogue` (never committed). Set `MULTILOGUE_ACCESS_YES=1` to skip licence prompts in CI.
+
+```python
+from multilogue.access import list_sources, load
+
+print(list_sources())
+# ['synthetic', 'polis', 'gdn_cc', 'cdcp', 'cimt', 'decidim']
+
+bundle = load("synthetic")
+bundle = load("polis", conversation="vtaiwan.uberx", max_units=200)
+bundle = load("gdn_cc", split="valid", max_units=500)
+units = bundle["units"]  # citation/licence in bundle["citation"], bundle["license"]
+```
+
+| Source | Content |
+|--------|---------|
+| `synthetic` | In-memory dummy units (no download) |
+| `polis` | Polis openData comments (CC BY 4.0) |
+| `gdn_cc` | Grand Débat clarified units (FR) |
+| `cdcp` | Cornell eRulemaking comments (EN) |
+| `cimt` | German mobility participation sentences |
+| `decidim` | Metadecidim proposals/comments CSV |
+
+Study PDF/`.docx` parsers stay in consumer packages.
+
+## Synthetic validation (no corpora in git)
 
 ```bash
 pip install -e ".[dev]"
 multilogue-validate --out outputs/validation_smoke --verbose
-# or: python -m multilogue.experiment --out outputs/validation_smoke
-pytest tests/test_experiment.py -q
+pytest tests/test_experiment.py tests/test_access.py -q
 ```
 
-Outputs go under gitignored `outputs/`. The phrase bank and `FakeClient` live in `multilogue/dummy.py`.
+Outputs go under gitignored `outputs/`. Downloads go under the Access cache, not the repo.
 
 ## Docs
 
@@ -40,4 +64,4 @@ Outputs go under gitignored `outputs/`. The phrase bank and `FakeClient` live in
 
 ## Non-goals
 
-Multilogue does not ship PDF/`.docx` parsers, study prompts, grounds taxonomies, or paper headline metrics. Those stay in consumer packages. No real dialogue corpora are stored here.
+Multilogue does not ship PDF/`.docx` parsers, study prompts, grounds taxonomies, or paper headline metrics. Those stay in consumer packages. No private dialogue corpora are stored in git.

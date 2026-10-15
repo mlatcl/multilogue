@@ -31,5 +31,8 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["multilogue"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"multilogue/access/resources.json" = "multilogue/access/resources.json"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

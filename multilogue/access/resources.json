@@ -1,0 +1,86 @@
+{
+  "synthetic": {
+    "details": "In-memory synthetic units for CI and smoke tests. No download.",
+    "citation": "multilogue.dummy.make_units",
+    "license": "MIT (generated)",
+    "urls": [],
+    "files": [],
+    "language": "en",
+    "download": false
+  },
+  "polis": {
+    "details": "Polis open-data conversation exports (comments.csv). Civic short-form comments from Computational Democracy Project case studies.",
+    "citation": "The Computational Democracy Project. Open Polis data. https://github.com/compdemocracy/openData (CC BY 4.0).",
+    "license": "CC BY 4.0",
+    "base_url": "https://raw.githubusercontent.com/compdemocracy/openData/master/",
+    "default_conversation": "vtaiwan.uberx",
+    "conversations": [
+      "vtaiwan.uberx",
+      "scoop-hivemind.affordable-housing",
+      "scoop-hivemind.biodiversity",
+      "scoop-hivemind.freshwater",
+      "scoop-hivemind.taxes",
+      "scoop-hivemind.ubi",
+      "brexit-consensus",
+      "canadian-electoral-reform",
+      "football-concussions",
+      "15-per-hour-seattle",
+      "london.youth.policing",
+      "american-assembly.bowling-green",
+      "bg2050-volunteers",
+      "march-on.operation-marchin-orders"
+    ],
+    "files": ["comments.csv"],
+    "language": "mixed",
+    "download": true
+  },
+  "gdn_cc": {
+    "details": "Grand Débat National Corpus Clarification (argumentative units). Default split=valid for a smaller download.",
+    "citation": "Lequeu et al. (2026). The GDN-CC Dataset. https://huggingface.co/datasets/LequeuISIR/GDN-CC",
+    "license": "See Hugging Face dataset card (built on French Licence Ouverte Grand Débat data).",
+    "base_url": "https://huggingface.co/datasets/LequeuISIR/GDN-CC/resolve/main/",
+    "splits": {
+      "train": "GDNCC_data_train.jsonl",
+      "valid": "GDNCC_data_valid.jsonl",
+      "test": "GDNCC_data_test.jsonl"
+    },
+    "default_split": "valid",
+    "language": "fr",
+    "download": true
+  },
+  "cdcp": {
+    "details": "Cornell eRulemaking Corpus (CDCP): US CFPB Consumer Debt Collection Practices comments.",
+    "citation": "Park, J. & Cardie, C. (2018). A Corpus of eRulemaking User Comments for Measuring Evaluability of Arguments. LREC.",
+    "license": "Research corpus — cite the paper; see authors' terms.",
+    "urls": ["https://facultystaff.richmond.edu/~jpark/data/cdcp_acl17.zip"],
+    "files": ["cdcp_acl17.zip"],
+    "language": "en",
+    "download": true
+  },
+  "cimt": {
+    "details": "German citizen contributions in mobility planning (CIMT argument-mining corpus).",
+    "citation": "Romberg & Escher. CIMT argument mining dataset. https://github.com/juliaromberg/cimt-argument-mining-dataset (CC BY-SA 4.0).",
+    "license": "CC BY-SA 4.0",
+    "base_url": "https://raw.githubusercontent.com/juliaromberg/cimt-argument-mining-dataset/master/",
+    "default_process": "Cycling-Dialogue-Bonn",
+    "processes": {
+      "Cycling-Dialogue-Bonn": "Cycling-Dialogue-Bonn/dataset_CDB.tsv",
+      "Cycling-Dialogue-Cologne": "Cycling-Dialogue-Cologne/dataset_CDC.tsv",
+      "Cycling-Dialogue-Moers": "Cycling-Dialogue-Moers/dataset_CDM.tsv",
+      "Mobility-Concept-Krefeld": "Mobility-Concept-Krefeld/dataset_MCK.tsv",
+      "Survey-Bonn": "Survey-Bonn/dataset_CQB.tsv"
+    },
+    "language": "de",
+    "download": true
+  },
+  "decidim": {
+    "details": "Metadecidim open-data CSV exports (proposals or proposal_comments).",
+    "citation": "Metadecidim Open Data. https://meta.decidim.org/open-data",
+    "license": "Open data from Decidim instance (check Metadecidim terms).",
+    "base_url": "https://meta.decidim.org/open-data/download",
+    "default_resource": "proposals",
+    "resources": ["proposals", "proposal_comments", "debates", "debate_comments"],
+    "language": "mixed",
+    "download": true
+  }
+}

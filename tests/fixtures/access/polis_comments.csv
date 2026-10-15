@@ -1,0 +1,4 @@
+timestamp,datetime,comment-id,author-id,agrees,disagrees,moderated,comment-body
+1,Mon Jan 1 00:00:00 2020,10,100,2,0,0,I worry that ride-hailing will undercut taxi drivers without fair rules.
+2,Mon Jan 1 00:00:01 2020,11,101,1,1,0,Clear insurance requirements would help passengers feel safer.
+3,Mon Jan 1 00:00:02 2020,12,102,0,0,1,spam should be ignored
