@@ -1,7 +1,7 @@
 ---
 id: "0003"
 title: "Phrases share one embedding space with frozen clusters and lenses"
-status: "Ready"
+status: "Implemented"
 priority: "High"
 created: "2026-10-15"
 last_updated: "2026-10-15"

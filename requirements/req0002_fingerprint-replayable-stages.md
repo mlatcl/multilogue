@@ -1,7 +1,7 @@
 ---
 id: "0002"
 title: "Model stages are fingerprint-keyed and replayable"
-status: "Ready"
+status: "Implemented"
 priority: "High"
 created: "2026-10-15"
 last_updated: "2026-10-15"

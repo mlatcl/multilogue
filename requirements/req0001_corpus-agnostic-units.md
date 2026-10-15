@@ -1,7 +1,7 @@
 ---
 id: "0001"
 title: "Consumers hand units without multilogue knowing source formats"
-status: "Ready"
+status: "Implemented"
 priority: "High"
 created: "2026-10-15"
 last_updated: "2026-10-15"

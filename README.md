@@ -20,6 +20,11 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Docs
+
+- [Methodology](docs/methodology.md) — shared analytic method
+- [Migration](docs/migration.md) — how `dialogue_formats` and `pub_dialogue` should depend on this package
+
 ## Non-goals
 
 Multilogue does not ship PDF/`.docx` parsers, study prompts, grounds taxonomies, or paper headline metrics. Those stay in consumer packages.

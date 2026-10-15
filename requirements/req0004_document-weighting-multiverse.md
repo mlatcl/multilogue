@@ -1,7 +1,7 @@
 ---
 id: "0004"
 title: "Document weighting and multiverse variance shares are first-class"
-status: "Ready"
+status: "Implemented"
 priority: "High"
 created: "2026-10-15"
 last_updated: "2026-10-15"

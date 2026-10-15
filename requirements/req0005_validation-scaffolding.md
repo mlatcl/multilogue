@@ -1,7 +1,7 @@
 ---
 id: "0005"
 title: "Validation scaffolding without study-specific coding schemes"
-status: "Ready"
+status: "Implemented"
 priority: "Medium"
 created: "2026-10-15"
 last_updated: "2026-10-15"

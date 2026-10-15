@@ -1,7 +1,7 @@
 ---
 id: "2026-10-15_cip0001-methodology-docs"
 title: "Write methodology.md and migration.md"
-status: "Ready"
+status: "Completed"
 priority: "Medium"
 created: "2026-10-15"
 last_updated: "2026-10-15"
@@ -22,8 +22,8 @@ Document the novel shared method and how dialogue_formats / pub_dialogue should 
 
 ## Acceptance Criteria
 
-- [ ] `docs/methodology.md` covers AAA, quote verification, frozen topic space, document weighting, multiverse
-- [ ] `docs/migration.md` maps modules from both consumers
+- [x] `docs/methodology.md` covers AAA, quote verification, frozen topic space, document weighting, multiverse
+- [x] `docs/migration.md` maps modules from both consumers
 
 ## Related
 
