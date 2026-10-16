@@ -1,5 +1,8 @@
 # multilogue
 
+[![CI](https://github.com/mlatcl/multilogue/actions/workflows/ci.yml/badge.svg)](https://github.com/mlatcl/multilogue/actions/workflows/ci.yml)
+[![Docs](https://github.com/mlatcl/multilogue/actions/workflows/docs.yml/badge.svg)](https://mlatcl.github.io/multilogue/)
+
 Reusable Access → Assess → Address methodology for LLM-assisted analysis of public dialogue corpora.
 
 This repository is governed with VibeSafe. Design precedes code:
@@ -62,6 +65,7 @@ Colab-ready notebooks walk Access → Assess → Address with diagnostic plots
 | [05 Multiverse](notebooks/05_multiverse.ipynb) | Variance shares |
 | [06 Validate](notebooks/06_validate.ipynb) | κ, sheets, evidence pack |
 | [07 End-to-end](notebooks/07_end_to_end.ipynb) | Synthetic smoke experiment |
+| [08 Soft / EMD](notebooks/08_soft_distance.ipynb) | Soft PPCA, σ²-by-EMD, document EMD |
 
 See [SETUP.md](SETUP.md). Regenerate with `python scripts/build_notebooks.py`.
 
