@@ -77,9 +77,17 @@ Outputs go under gitignored `outputs/`. Downloads go under the Access cache, not
 
 ## Docs
 
-- [Methodology](docs/methodology.md) — shared analytic method
-- [Migration](docs/migration.md) — how consumers should depend on this package
-- [SETUP.md](SETUP.md) — notebooks and Colab
+Published site (MkDocs Material): after `pip install -e ".[docs]"`, run `mkdocs serve`.
+Hosted at [mlatcl.github.io/multilogue](https://mlatcl.github.io/multilogue/) when GitHub Pages is enabled.
+
+| Page | Content |
+|------|---------|
+| [Methodology](docs/methodology.md) | Shared analytic method |
+| [Cookbooks](docs/cookbooks/consumer-skeleton.md) | Build `ai-dialogue-formats` / `pub-dialogue` style packages |
+| [Migration](docs/migration.md) | Thin existing consumers onto multilogue |
+| [SETUP.md](SETUP.md) | Notebooks and Colab |
+
+CIP-0004 chose MkDocs Material over Sphinx for Markdown-native docs + mkdocstrings API pages.
 
 ## Non-goals
 

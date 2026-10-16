@@ -12,6 +12,7 @@ data/
 outputs/
 scratch/
 experiments/outputs/
+site/
 
 # VibeSafe System Files (Auto-added during installation)
 # These are VibeSafe infrastructure - not your project content

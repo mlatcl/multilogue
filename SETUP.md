@@ -12,7 +12,7 @@ jupyter notebook notebooks/00_access.ipynb
 ## Colab
 
 Each notebook has an **Open in Colab** badge. The setup cell installs multilogue from
-`https://github.com/lawrennd/multilogue` (public) and matplotlib. No GitHub token is
+`https://github.com/mlatcl/multilogue` (public) and matplotlib. No GitHub token is
 required for the package itself.
 
 | Notebook | Topic |

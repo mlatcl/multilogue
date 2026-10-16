@@ -1,0 +1,97 @@
+site_name: multilogue
+site_description: Access → Assess → Address methodology for LLM-assisted public dialogue analysis
+site_url: https://mlatcl.github.io/multilogue/
+repo_url: https://github.com/mlatcl/multilogue
+repo_name: mlatcl/multilogue
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: deep orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: deep orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: false
+            show_root_heading: true
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            merge_init_into_class: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - tables
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Methodology: methodology.md
+  - Concepts:
+      - Units and phrases: concepts/units.md
+      - Checkpoints and replay: concepts/checkpoints.md
+      - Shared topic space: concepts/topic-space.md
+      - Document weighting: concepts/weighting.md
+      - Multiverse: concepts/multiverse.md
+  - Guide:
+      - Access: guide/access.md
+      - Assess: guide/assess.md
+      - Address pipeline: guide/address.md
+  - Cookbooks:
+      - Consumer skeleton: cookbooks/consumer-skeleton.md
+      - ai-dialogue-formats style: cookbooks/ai-dialogue-formats.md
+      - pub-dialogue style: cookbooks/pub-dialogue.md
+  - Notebooks: notebooks.md
+  - Migration: migration.md
+  - API:
+      - Overview: api/index.md
+      - access: api/access.md
+      - assess_base: api/assess_base.md
+      - extract: api/extract.md
+      - cluster: api/cluster.md
+      - weight: api/weight.md
+      - multiverse: api/multiverse.md
+      - llm: api/llm.md
+      - validate / report: api/validate_report.md
+      - dummy / experiment: api/dummy_experiment.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/mlatcl/multilogue

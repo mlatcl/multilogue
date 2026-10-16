@@ -23,6 +23,11 @@ multilogue-validate = "multilogue.experiment:main"
 openai = ["openai>=1.40"]
 litellm = ["litellm>=1.40"]
 report = ["matplotlib>=3.7"]
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26",
+]
 dev = [
     "pytest>=8",
     "openai>=1.40",
@@ -31,6 +36,9 @@ dev = [
     "nbclient>=0.10",
     "ipython>=8",
     "ipykernel>=6",
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26",
 ]
 
 [tool.hatch.build.targets.wheel]

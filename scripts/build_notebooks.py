@@ -9,7 +9,7 @@ from pathlib import Path
 
 import nbformat as nbf
 
-GITHUB_REPO = "lawrennd/multilogue"
+GITHUB_REPO = "mlatcl/multilogue"
 GITHUB_BRANCH = "main"
 
 SETUP = r'''#@title Setup (run first)
@@ -23,7 +23,7 @@ if IN_COLAB:
     subprocess.check_call([
         sys.executable, "-m", "pip", "install", "-q",
         "matplotlib", "pandas", "numpy", "scikit-learn", "pyyaml",
-        "git+https://github.com/lawrennd/multilogue.git",
+        "git+https://github.com/mlatcl/multilogue.git",
     ])
 else:
     try:

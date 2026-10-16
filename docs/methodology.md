@@ -24,6 +24,16 @@ Assess remains question-agnostic: *"Assess is only work you can do without the q
 
 Model stages run through `StageRunner`: append-only JSONL checkpoints keyed by item, meta fingerprint of prompt + model, resume on rerun, supersede on fingerprint change, and replay with no API calls.
 
+## Design choices worth knowing
+
+| Choice | Why |
+|--------|-----|
+| Small unit contract | Downstream code must not know PDF vs Polis vs synthetic |
+| Frozen k-means | Assignments are not bit-stable across machines; freeze when the phrase set is unchanged |
+| Document weights | Long documents must not drown short ones in pooled phrase counts |
+| ℓ as a callback | Paper metrics stay out of the library |
+| PCA plots as *views* | Classical PCA summarises variance for diagnostics; probabilistic PCA / soft lenses stay in study Address code |
+
 ## Non-goals
 
 - Study PDF/`.docx` parsers (public open-data CSV/JSON/TSV→Unit adapters are allowed under Access)

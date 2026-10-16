@@ -1,6 +1,8 @@
 # Migrating consumers onto multilogue
 
-CIP-0001 lands the library first. Consumer thinning is follow-on backlog work in each study repo.
+CIP-0001 landed the library; CIP-0004 documents how to recreate or thin consumers. Follow-on backlog work lives in each study repo.
+
+For greenfield packages, prefer the [cookbooks](cookbooks/consumer-skeleton.md) over this thinning map.
 
 ## `ai-dialogue-formats` → multilogue
 
