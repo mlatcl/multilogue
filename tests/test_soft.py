@@ -80,6 +80,39 @@ class TestSigma2Selection:
         )
         assert ms.select_sigma2_constrained(c, 10.2) == pytest.approx(1.0)
 
+    def test_neighbours_and_hard(self):
+        grid = np.logspace(-4, 2, 25)
+        eff = np.concatenate(
+            [
+                np.linspace(1.0, 1.3, 10),
+                [2.09, 4.52, 7.54],
+                np.linspace(9.25, 10.2, 12),
+            ]
+        )
+        emd = np.concatenate(
+            [
+                np.full(10, 0.064),
+                [0.0596, 0.0572, 0.0555],
+                np.linspace(0.0554, 0.0549, 12),
+            ]
+        )
+        curve = pd.DataFrame(
+            {"sigma2": grid, "mean_eff_support": eff, "mean_emd": emd}
+        )
+        n = 10.2
+        assert ms.select_sigma2_one_step_harder(curve, n) == pytest.approx(grid[10])
+        assert ms.select_sigma2_one_step_softer(curve, n) == pytest.approx(grid[12])
+        assert ms.select_sigma2_hard(curve, n) == pytest.approx(grid[0])
+        assert list(ms.SIGMA2_RULES) == [
+            "constrained",
+            "one_step_harder",
+            "one_step_softer",
+            "hard",
+        ]
+        assert ms.apply_sigma2_rule("constrained", curve, n) == pytest.approx(grid[11])
+        with pytest.raises(ValueError, match="Unknown sigma2_rule"):
+            ms.apply_sigma2_rule("nope", curve, n)
+
     @pytest.mark.parametrize("seed", [0, 1])
     def test_sweep_matches_band_rule(self, seed):
         C = _centroids(seed=seed)
