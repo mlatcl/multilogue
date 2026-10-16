@@ -10,11 +10,13 @@ Blueprint for a package like [`mlatcl/pub-dialogue`](https://github.com/mlatcl/p
 |---------|-----------------|------------|
 | Stage runner / clients | `StageRunner`, `LiteLLMClient` / `OpenAIClient` | `AccessStage` PDF chunking, licences |
 | Yield / phrase tables | `extract.yield_report`, `phrase_table` | Tech-term filters, concern/benefit prompts |
-| Clustering helpers | `multilogue.cluster` | Soft PPCA lens memberships, σ² sweeps, orchestration |
+| Clustering helpers | `multilogue.cluster` | Address orchestration, prompts |
+| Soft PPCA / σ²-by-EMD | `multilogue.soft` | Kind-specific file naming |
+| Document EMD / PERMANOVA | `multilogue.distance` | Technology group maps |
 | Multiverse | `enumerate_configurations`, `variance_decomposition` | R1–R3 ℓ, artefact loading |
 | Evidence pack | `multilogue.report` | Study columns, quote policy |
 | Assess size tables | `assess_base` | Bibliography / table-row heuristics |
-| — | — | `crosscut`, distance / EMD, temporal analyses |
+| — | — | `crosscut`, temporal analyses |
 
 ## Package sketch (Fynesse-shaped)
 
@@ -78,7 +80,7 @@ def assess_units(units):
     }
 ```
 
-### Address: orchestrate multilogue, keep PPCA/ℓ local
+### Address: orchestrate multilogue; keep paper ℓ local
 
 ```python
 # pub_dialogue/address.py (orchestration sketch)
@@ -87,6 +89,8 @@ import numpy as np
 from multilogue.extract import make_extract_work, phrase_table
 from multilogue.llm import StageRunner
 from multilogue.cluster import Embedder, frozen_or_new_assignments, resolve_lenses
+from multilogue.soft import soft_mapping_from_hard, sigma2_sweep_select
+from multilogue.distance import run_document_distance_analysis
 from multilogue.weight import group_compare
 from multilogue.multiverse import enumerate_configurations, run_multiverse, variance_decomposition
 
@@ -111,7 +115,8 @@ def run_core(units, client, root: Path, prompts: dict, model: str, k: int):
     E = np.asarray(Embedder(root / "emb", client, model)(phrases.phrase.tolist()), float)
     labels, centroids, _ = frozen_or_new_assignments(phrases, E, k, 0, root / "clusters")
     phrases = phrases.assign(cluster=labels, centroid_sim=(E * centroids[labels]).sum(1))
-    # lenses via make_lens_work + resolve_lenses (blind), then optionally soft PPCA locally
+    # Multi-run lenses → soft_mapping_from_hard per run → sigma2_sweep_select
+    # Document groups: run_document_distance_analysis(phrases, centroids, doc_group)
     return phrases
 
 def technology_compare(phrases, rng):
@@ -136,6 +141,6 @@ configs = enumerate_configurations(dims)
 
 ## AAA discipline
 
-Keep PDF chunking and licence notes in Access. Keep bibliography heuristics in Assess. Put tech-term filters and PPCA soft memberships in Address — they encode the question. That split is what makes multilogue reusable across technologies and formats.
+Keep PDF chunking and licence notes in Access. Keep bibliography heuristics in Assess. Put tech-term filters and paper-specific ℓ in Address; call `multilogue.soft` / `multilogue.distance` for the shared soft-membership and transport layer.
 
 See [Migration](../migration.md) for a module-by-module thinning map.

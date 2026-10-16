@@ -26,10 +26,12 @@ Dependency: add `multilogue` (path or published) to `pyproject.toml`. Prefer thi
 |----------------|-------------|----------------------|
 | Checkpoint / client patterns | `StageRunner` + `LiteLLMClient` | `AccessStage` PDF chunking |
 | Extraction diagnostics | `extract.yield_report` / `phrase_table` | tech-term filters, concern/benefit prompts |
-| Clustering / labelling helpers | `multilogue.cluster` | lens PPCA / σ², address orchestration |
+| Clustering / labelling helpers | `multilogue.cluster` | address orchestration |
+| Soft PPCA / σ² sweep / run EMD | `multilogue.soft` | thin wrappers if desired |
+| Document EMD / MDS / PERMANOVA | `multilogue.distance` | group column wiring |
 | Multiverse enumerate + variance | `multilogue.multiverse` | R1–R3 ℓ, k/prompt artefact loading |
 | Evidence pack | `multilogue.report` | study-specific columns |
-| `crosscut`, `distance`, temporal | — | stay |
+| `crosscut`, temporal | — | stay |
 | Assess quality plots | optionally `assess_base` | bibliography/table heuristics |
 
 ## Suggested order

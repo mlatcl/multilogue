@@ -254,12 +254,11 @@ NOTEBOOKS: dict[str, list[tuple[str, str]]] = {
             "The scatter below projects embeddings onto the first two principal components. "
             "Classical PCA is an *algorithm* that finds linear directions of high variance; "
             "it is a viewing device here, not the generative story for the phrases. "
-            "Probabilistic PCA (Tipping & Bishop) would add an explicit noise model and a "
-            "likelihood — useful when you want soft memberships or to choose a noise scale "
-            "σ² — but that modelling layer belongs in study-specific Address code, not in "
-            "this shared library. Multilogue keeps the weaker, local assumption: nearby "
-            "embeddings tend to share a topic. If the scatter shows hopeless overlap, "
-            "revisit *k* or the phrase set before interpreting shares.",
+            "For soft lens memberships under probabilistic PCA and σ² chosen by Earth "
+            "Mover's Distance across lens runs, see notebook **08**. Multilogue keeps the "
+            "weaker, local assumption for hard clustering: nearby embeddings tend to share "
+            "a topic. If the scatter shows hopeless overlap, revisit *k* or the phrase set "
+            "before interpreting shares.",
         ),
         (
             "code",
@@ -349,9 +348,8 @@ NOTEBOOKS: dict[str, list[tuple[str, str]]] = {
             "Binary document presence (\"did this document raise cluster *c* at all?\") is "
             "available for temporal or rarity views; this notebook focuses on share "
             "comparisons between groups. Distances between whole topic *profiles* "
-            "(for example earth-mover style comparisons of document mixtures) are left "
-            "to study packages — multilogue stops at the shares and bootstrap intervals "
-            "that those distances would consume.",
+            "(Earth Mover's Distance under a cosine ground cost, with MDS and PERMANOVA) "
+            "are in notebook **08** — they consume the same document-level shares.",
         ),
         (
             "code",
@@ -557,8 +555,97 @@ NOTEBOOKS: dict[str, list[tuple[str, str]]] = {
             "when you want public civic text.\n"
             "- Replace `FakeClient` with an OpenAI or LiteLLM client for real extraction "
             "(checkpoints still apply).\n"
+            "- Soft PPCA lenses and document EMD: notebook **08**.\n"
             "- Keep study-specific PDF parsers, prompts, and headline ℓ in your own package; "
             "depend on multilogue for the shared method.",
+        ),
+    ],
+    "08_soft_distance.ipynb": [
+        (
+            "md",
+            "# 08 · Soft PPCA lenses, σ² by EMD, and document distance\n\n"
+            "Hard *k*-means and a single lens map (notebook 03) assign each cluster to one "
+            "framing. A richer Address layer treats each lens as a **probabilistic PCA** "
+            "Gaussian over its member centroids and gives every cluster soft mixture "
+            "weights over lenses. The shared noise scale σ² is not guessed: we sweep it "
+            "and pick the value that minimises mean **Earth Mover's Distance** between "
+            "independent lens runs, subject to a meaningful-soft band on effective support "
+            "(so we do not collapse to the near-uniform solution).\n\n"
+            "Separately, documents can be compared by EMD on their **cluster share** "
+            "profiles (cosine ground cost between centroids), with classical MDS and "
+            "PERMANOVA / PERMDISP for group tests — without using lens names at all.\n\n"
+            "Requires the optional dependency ``pot`` "
+            "(`pip install 'multilogue[distance]'`).",
+        ),
+        (
+            "code",
+            "import subprocess, sys\n"
+            "subprocess.check_call([sys.executable, \"-m\", \"pip\", \"install\", \"-q\", \"pot\"])\n"
+            "import numpy as np\n"
+            "import pandas as pd\n"
+            "from multilogue import soft as ms\n"
+            "from multilogue import distance as dd\n"
+            "from multilogue import viz\n\n"
+            "rng = np.random.default_rng(0)\n"
+            "k, dim, n_lenses, n_runs = 24, 12, 6, 3\n"
+            "centroids = rng.normal(size=(k, dim))\n"
+            "centroids /= np.linalg.norm(centroids, axis=1, keepdims=True)\n"
+            "mappings = []\n"
+            "for _ in range(n_runs):\n"
+            "    perm = rng.permutation(k)\n"
+            "    mappings.append({f\"L{j}\": {\"cluster_ids\": perm[j::n_lenses].tolist()}\n"
+            "                     for j in range(n_lenses)})\n\n"
+            "sweep = ms.sigma2_sweep_select(centroids, mappings)\n"
+            "curve = pd.DataFrame(sweep[\"curve\"])\n"
+            "print(f\"Selected σ²: {sweep['sigma2_best']:.4g} ({sweep['selection']})\")\n"
+            "print(f\"Mean EMD at σ²*: {sweep['emd_best']:.4f}\")\n"
+            "print(f\"Mean eff. support: {sweep['eff_support_best']:.2f}\")\n"
+            "display(curve[[\"sigma2\", \"mean_emd\", \"mean_eff_support\"]].head(8))\n\n"
+            "W, names = ms.compute_mixture_weights(\n"
+            "    centroids, mappings[0], sweep[\"sigma2_best\"])\n"
+            "print(\"Mixture weights shape:\", W.shape, \"lenses:\", names)\n"
+            "print(\"Row sums:\", np.round(W.sum(axis=1)[:5], 3))",
+        ),
+        (
+            "md",
+            "## Document EMD and PERMANOVA\n\n"
+            "Plant two groups with different cluster profiles. Documents with too few "
+            "phrases are dropped; the rest are placed by transport distance and tested "
+            "for group location differences.",
+        ),
+        (
+            "code",
+            "prof_a = np.array([0.4, 0.4, 0.05, 0.05, 0.05, 0.05])\n"
+            "prof_b = np.array([0.05, 0.05, 0.05, 0.05, 0.4, 0.4])\n"
+            "docs = {f\"a{i}\": prof_a for i in range(8)}\n"
+            "docs.update({f\"b{i}\": prof_b for i in range(8)})\n"
+            "rows = []\n"
+            "for doc, profile in docs.items():\n"
+            "    for c in rng.choice(6, size=120, p=profile):\n"
+            "        rows.append({\"doc_id\": doc, \"cluster\": int(c)})\n"
+            "phrases = pd.DataFrame(rows)\n"
+            "group = {d: (\"A\" if d.startswith(\"a\") else \"B\") for d in docs}\n"
+            "C6 = centroids[:6]\n"
+            "res = dd.run_document_distance_analysis(\n"
+            "    phrases, C6, group, min_phrases=50, n_perm=199, seed=0)\n"
+            "pm = res[\"permanova\"]\n"
+            "print(f\"Docs kept: {len(res['docs'])}; dropped: {res['dropped_docs']}\")\n"
+            "print(f\"PERMANOVA R²={pm['R2']:.3f}, p={pm['p_value']:.4f}\")\n"
+            "display(res[\"pairwise\"][[\"comparison\", \"R2\", \"p_value\", \"dispersion_p\"]])\n\n"
+            "import matplotlib.pyplot as plt\n"
+            "coords = res[\"mds\"][\"coords\"]\n"
+            "fig, ax = plt.subplots(figsize=(5, 4))\n"
+            "for g, marker in ((\"A\", \"o\"), (\"B\", \"s\")):\n"
+            "    m = res[\"groups\"] == g\n"
+            "    ax.scatter(coords[m, 0], coords[m, 1], label=g, marker=marker)\n"
+            "ax.set_xlabel(\"MDS 1\"); ax.set_ylabel(\"MDS 2\")\n"
+            "ax.set_title(\"Document EMD → classical MDS\")\n"
+            "ax.legend()\n"
+            "fig.tight_layout()\n"
+            "path = FIG / \"08_doc_mds.png\"\n"
+            "fig.savefig(path, dpi=120)\n"
+            "plt.close(fig)\n"
+            "display(Markdown(f\"![MDS]({path})\"))",
         ),
     ],
 }

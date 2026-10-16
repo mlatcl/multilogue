@@ -10,6 +10,6 @@ If every phrase counts equally, a long document dominates the comparison. Multil
 
 [`doc_binary_presence`](../api/weight.md) asks whether a document raised a cluster at all — useful for temporal or rarity views.
 
-## What stays in the study
+## Distances between profiles
 
-Distances between whole topic profiles (earth-mover style comparisons, PERMANOVA, …) consume these shares but are not implemented here. Keep them in the consumer package.
+Document×cluster shares feed [`multilogue.distance`](../api/distance.md) (EMD, MDS, PERMANOVA). Soft lens affinities use [`multilogue.soft`](../api/soft.md). See [Soft PPCA and EMD](soft-ppca-emd.md).

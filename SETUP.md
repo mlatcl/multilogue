@@ -25,6 +25,7 @@ required for the package itself.
 | [05_multiverse](notebooks/05_multiverse.ipynb) | Multiverse variance shares |
 | [06_validate](notebooks/06_validate.ipynb) | κ, sheets, evidence pack |
 | [07_end_to_end](notebooks/07_end_to_end.ipynb) | Synthetic smoke experiment |
+| [08_soft_distance](notebooks/08_soft_distance.ipynb) | Soft PPCA, σ²-by-EMD, document EMD (`pot`) |
 
 Default path: **synthetic units + FakeClient** (no API key). Optional cells load public
 open data (e.g. Polis) into a local cache — never commit that cache.

@@ -15,6 +15,7 @@ Optional extras:
 | Extra | Adds |
 |-------|------|
 | `[report]` | matplotlib diagnostics (`multilogue.viz`) |
+| `[distance]` | POT for soft PPCA σ² sweeps and document EMD |
 | `[openai]` / `[litellm]` | real model clients |
 | `[docs]` | MkDocs Material + mkdocstrings |
 

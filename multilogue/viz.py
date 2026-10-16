@@ -160,8 +160,9 @@ def embedding_scatter(
     """2D PCA projection of phrase embeddings coloured by cluster or lens.
 
     Classical PCA here is a viewing algorithm (directions of high variance), not
-    a probabilistic PCA generative model. Soft PPCA memberships stay in study
-    packages; this plot only makes the local clustering assumption inspectable.
+    a probabilistic PCA generative model. Soft PPCA memberships and σ² sweeps
+    live in :mod:`multilogue.soft`; this plot only makes the local clustering
+    assumption inspectable.
     """
     plt = _plt()
     from sklearn.decomposition import PCA

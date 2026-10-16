@@ -12,4 +12,4 @@ Cluster **labels** and framing **lenses** are proposed from example phrases alon
 
 ## PCA diagnostics vs PPCA
 
-Notebook and `multilogue.viz.embedding_scatter` plots use **classical PCA** as a viewing device (directions of high variance). That is not a claim that phrases were generated from probabilistic PCA. Soft PPCA lens memberships and σ² sweeps are study-specific Address work and stay out of multilogue.
+Notebook and `multilogue.viz.embedding_scatter` plots use **classical PCA** as a viewing device (directions of high variance). That is not a claim that phrases were generated from probabilistic PCA. Soft PPCA lens memberships, σ² selection by EMD, and document-level EMD live in [`multilogue.soft`](../api/soft.md) and [`multilogue.distance`](../api/distance.md) — see [Soft PPCA and EMD](soft-ppca-emd.md).
