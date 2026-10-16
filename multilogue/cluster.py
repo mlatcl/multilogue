@@ -157,6 +157,36 @@ def make_label_work(
     return work
 
 
+def cluster_ids_from_lens_field(raw, k: int) -> list[int]:
+    """Parse a lens ``clusters`` field into valid ids in ``0 .. k-1``.
+
+    Models often return a bare count, a single int, or phrase-counts from the
+    prompt instead of cluster ids — reject values outside the id range.
+    """
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, bool):
+        return []
+    if isinstance(raw, (int, float)):
+        raw = [int(raw)]
+    elif isinstance(raw, str):
+        raw = re.findall(r"\d+", raw)
+    elif not isinstance(raw, (list, tuple)):
+        try:
+            raw = list(raw)
+        except TypeError:
+            return []
+    out: list[int] = []
+    for c in raw:
+        m = re.search(r"\d+", str(c))
+        if not m:
+            continue
+        i = int(m.group())
+        if 0 <= i < k:
+            out.append(i)
+    return out
+
+
 def make_lens_work(
     client,
     *,
@@ -170,17 +200,19 @@ def make_lens_work(
     def work(run_number: int) -> dict:
         user = (
             prompt_template.replace(clusters_placeholder, cluster_description)
-            + f"\n\n(run {run_number})"
+            + f"\n\nIMPORTANT: each lens \"clusters\" value must be a JSON array of "
+            + f"integer ids in 0..{k - 1} — the number *before* the colon on each "
+            + f"cluster line. Ignore n_phrases=… counts; never put those in "
+            + f"\"clusters\". Every id must appear in exactly one lens.\n"
+            + f"(run {run_number})"
         )
         d = parse_json(client.complete("lens", system, user, model=model, json_mode=True))
         mapping, descs = {}, {}
         for L in get_list(d, "lenses"):
             name = str(L.get("name", "")).strip() or "Unnamed"
             descs[name] = str(L.get("description", ""))
-            for c in L.get("clusters", []) or []:
-                m = re.search(r"\d+", str(c))
-                if m and int(m.group()) < k:
-                    mapping.setdefault(int(m.group()), name)
+            for i in cluster_ids_from_lens_field(L.get("clusters"), k):
+                mapping.setdefault(i, name)
         for c in range(k):
             mapping.setdefault(c, "Other")
         return {"mapping": {str(a): b for a, b in mapping.items()}, "descriptions": descs}

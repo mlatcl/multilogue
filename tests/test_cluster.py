@@ -3,7 +3,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from multilogue.cluster import Embedder, frozen_or_new_assignments, resolve_lenses
+from multilogue.cluster import (
+    Embedder,
+    cluster_ids_from_lens_field,
+    frozen_or_new_assignments,
+    make_lens_work,
+    resolve_lenses,
+)
 
 
 class FakeEmbedClient:
@@ -40,3 +46,30 @@ def test_resolve_lenses_default():
     assert not edited
     assert lens_of[0] == "A"
     assert lens_of[2] == "Other"
+
+
+def test_cluster_ids_from_lens_field():
+    assert cluster_ids_from_lens_field([0, 2, 2], 4) == [0, 2, 2]
+    assert cluster_ids_from_lens_field(1, 4) == [1]
+    # phrase-count style values outside 0..k-1 are dropped
+    assert cluster_ids_from_lens_field([6, 37], 6) == []
+    assert cluster_ids_from_lens_field(37, 6) == []
+    assert cluster_ids_from_lens_field("0, 3", 6) == [0, 3]
+
+
+def test_make_lens_work_accepts_valid_ids():
+    class _C:
+        def complete(self, stage, system, user, model, json_mode=False):
+            assert "cluster_id" in user or "0.." in user
+            return '{"lenses":[{"name":"A","description":"","clusters":[0,1]},{"name":"B","description":"","clusters":[2]}]}'
+
+    work = make_lens_work(
+        _C(),
+        system="lens",
+        prompt_template="Group:\n<<CLUSTERS>>",
+        cluster_description="0: x | n_phrases=2\n1: y | n_phrases=2\n2: z | n_phrases=2",
+        model="m",
+        k=3,
+    )
+    out = work(1)
+    assert out["mapping"] == {"0": "A", "1": "A", "2": "B"}
