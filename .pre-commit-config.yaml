@@ -1,0 +1,6 @@
+# Keep notebook diffs tidy and avoid committing cell outputs.
+repos:
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.9.1
+    hooks:
+      - id: nbstripout
