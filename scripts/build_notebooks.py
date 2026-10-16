@@ -1373,9 +1373,10 @@ Public-dialogue studies often ask whether *how* people are convened changes
 *what* they raise — workshop versus survey, chatbot versus in-person. Multilogue
 does not hard-code “format”; it supplies the Address machinery with a group
 column and a consumer metric $\\ell$. This notebook teaches that pattern: Access
-on a public format pair (CIMT dialogue vs survey when available), then a full
-offline Address demo on format-tagged synthetic units with FakeClient, including
-soft contrasts, document EMD, and a multiverse over analytic decisions.
+on a public format pair, then Address that prefers a cached CIMT LLM run
+(resuming via StageRunner when an API key is present), with a FakeClient
+formats demo as the offline fallback — soft contrasts, document EMD, and a
+multiverse over analytic decisions.
 """,
         )
     ),
@@ -1431,25 +1432,28 @@ display(unit_size_table(access_units).describe())
     ),
     md(
         """
-German CIMT text does not match the English FakeClient phrase bank, so the
-*Address* path below uses format-tagged synthetic English units with the same
-group mechanics. With a real LLM client you can swap in the CIMT units from
-Access; checkpoints still apply.
-"""
-    ),
-    md(
-        """
-## Address — formats demo (FakeClient)
+## Address — cache first, then FakeClient fallback
 
-`run_formats_complexity_demo` wires the shared method end-to-end: multi-kind
-extract, frozen clustering, multi-run lenses, hard and soft format contrasts,
-$\\sigma^2$ neighbour rules, document distance, and multiverse on the format-gap
-$\\ell$. No API key required.
+StageRunner checkpoints under `outputs/formats_cimt_llm/` mean a prior CIMT LLM
+run can be reused without paying again. The next cell therefore:
+
+1. loads `.env` if present;
+2. if `OPENAI_API_KEY` is set and CIMT units exist — *resume or recache* the live
+   demo (completed fingerprints are skipped);
+3. else if a complete cached run is already on disk — use those tables;
+4. else run the offline FakeClient formats demo so Colab / CI still work.
+
+German CIMT text does not match the English FakeClient phrase bank, so the
+synthetic fallback keeps the same `format` group mechanics without an API.
 """
     ),
     code(
         """
+import json
+import os
 from pathlib import Path
+from IPython.display import display, Markdown
+from multilogue.config import load_dotenv
 from multilogue.experiment import run_formats_complexity_demo
 from multilogue import viz
 from multilogue.report import (
@@ -1459,12 +1463,72 @@ from multilogue.report import (
     ),
     code(
         """
-out = Path("outputs/notebook_formats_complexity")
-summary = run_formats_complexity_demo(
-    out, n_docs_per_group=4, units_per_doc=3, k=5, lens_runs=3, quiet=True,
-)
+load_dotenv(Path.cwd() / ".env")
+load_dotenv(Path.cwd().parent / ".env")
+# Prefer repo-root outputs when the notebook cwd is notebooks/.
+for _root in (Path.cwd(), Path.cwd().parent):
+    _cand = _root / "outputs" / "formats_cimt_llm"
+    if (_cand / "tables" / "phrases_clustered.csv").is_file() or (_cand / "checkpoints").is_dir():
+        LLM_OUT = _cand
+        break
+else:
+    LLM_OUT = Path("outputs/formats_cimt_llm")
+
+CACHE_TABLES = LLM_OUT / "tables"
+cache_ready = (CACHE_TABLES / "phrases_clustered.csv").is_file()
+key = os.environ.get("OPENAI_API_KEY", "").strip()
+summary = None
+address_source = None
+
+if key and cimt_units is not None:
+    from multilogue.openai_client import OpenAIClient
+    units_live = [
+        u for u in cimt_units
+        if (u.get("meta") or {}).get("code") != "non-arg"
+    ]
+    print(
+        f"Live / resume CIMT Address → {LLM_OUT} "
+        f"({len(units_live)} units; checkpoints reused when fingerprints match)"
+    )
+    summary = run_formats_complexity_demo(
+        LLM_OUT,
+        units=units_live,
+        client=OpenAIClient(log_path=LLM_OUT / "logs" / "openai.jsonl"),
+        kinds=("concern", "benefit"),
+        extract_model="gpt-4.1-mini",
+        embed_model="text-embedding-3-small",
+        label_model="gpt-4.1-mini",
+        k=6, lens_runs=3, quiet=True, max_workers=4,
+    )
+    tables = CACHE_TABLES
+    address_source = "cimt_llm"
+elif cache_ready:
+    print(f"Using cached CIMT Address tables → {CACHE_TABLES.resolve()}")
+    tables = CACHE_TABLES
+    address_source = "cimt_cache"
+    man = LLM_OUT / "run_manifest.json"
+    if man.is_file():
+        summary = json.loads(man.read_text())
+        display(summary)
+else:
+    out = Path("outputs/notebook_formats_complexity")
+    print(
+        "No CIMT cache and no API key — FakeClient formats demo →", out
+    )
+    summary = run_formats_complexity_demo(
+        out, n_docs_per_group=4, units_per_doc=3, k=5, lens_runs=3, quiet=True,
+    )
+    tables = out / "tables"
+    address_source = "fakeclient"
+
 display(summary)
-tables = out / "tables"
+print("Address source:", address_source)
+print("Tables:", tables.resolve())
+print("Checkpoints:", LLM_OUT / "checkpoints" if address_source != "fakeclient" else tables.parent / "checkpoints")
+"""
+    ),
+    code(
+        """
 for name in [
     "yield.csv",
     "group_compare_format_lenses.csv",
@@ -1477,28 +1541,26 @@ for name in [
     if p.is_file():
         print("—", name)
         display(pd.read_csv(p).head(12))
-"""
-    ),
-    code(
-        """
-shares = pd.read_csv(tables / "variance_shares_format_gap.csv")
-viz.variance_share_bars(shares, path=FIG / "09_format_gap_variance.png")
-print("Soft:", summary.get("soft"))
-print("Distance:", summary.get("distance"))
+
+shares_path = tables / "variance_shares_format_gap.csv"
+if shares_path.is_file():
+    shares = pd.read_csv(shares_path)
+    viz.variance_share_bars(shares, path=FIG / "09_format_gap_variance.png")
+if isinstance(summary, dict):
+    print("Soft:", summary.get("soft"))
+    print("Distance:", summary.get("distance"))
 """
     ),
     md(
         """
 ## Reading the run
 
-Findings markdown summarises clusters, top concerns by format, and which
-analytic decisions move $\\ell$ — no extra LLM calls.
+Findings summarise clusters, top concerns by format, and which analytic
+decisions move $\\ell$. This cell only reads tables — no LLM calls.
 """
     ),
     code(
         """
-from IPython.display import Markdown
-
 ph = pd.read_csv(tables / "phrases_clustered.csv")
 cmp = (
     pd.read_csv(tables / "group_compare_format_lenses.csv")
@@ -1521,55 +1583,19 @@ for g, tab in top_phrases_by_group(ph, kind="concern", n=8).items():
 if shares is not None:
     display(Markdown("### Multiverse variance shares"))
     display(shares)
+title = (
+    "CIMT dialogue vs survey — findings"
+    if address_source in {"cimt_llm", "cimt_cache"}
+    else "Dialogue vs survey — findings (FakeClient)"
+)
 md_text = findings_markdown(
-    ph, compare=cmp, multiverse=multi, variance_shares=shares,
-    title="Dialogue vs survey — findings",
+    ph, compare=cmp, multiverse=multi, variance_shares=shares, title=title,
 )
 write_findings(
     ph, tables / "findings.md", compare=cmp,
-    multiverse=multi, variance_shares=shares,
-    title="Dialogue vs survey — findings",
+    multiverse=multi, variance_shares=shares, title=title,
 )
 display(Markdown(md_text))
-"""
-    ),
-    md(
-        """
-## Optional — live LLM (skipped without a key)
-
-If `OPENAI_API_KEY` is set (for example via a local `.env`), the next cell runs
-the same demo on CIMT units with a real client. Smoke tests and Colab-without-key
-skip this cell's paid path automatically.
-"""
-    ),
-    code(
-        """
-import os
-from pathlib import Path
-from multilogue.config import load_dotenv
-
-load_dotenv(Path.cwd() / ".env")
-load_dotenv(Path.cwd().parent / ".env")
-key = os.environ.get("OPENAI_API_KEY", "").strip()
-if not key:
-    print("No OPENAI_API_KEY — skipping live LLM path.")
-elif cimt_units is None:
-    print("CIMT units unavailable — skipping live LLM path.")
-else:
-    from multilogue.openai_client import OpenAIClient
-    llm_out = Path("outputs/formats_cimt_llm")
-    live = run_formats_complexity_demo(
-        llm_out,
-        units=[u for u in cimt_units if (u.get("meta") or {}).get("code") != "non-arg"],
-        client=OpenAIClient(log_path=llm_out / "logs" / "openai.jsonl"),
-        kinds=("concern", "benefit"),
-        extract_model="gpt-4.1-mini",
-        embed_model="text-embedding-3-small",
-        label_model="gpt-4.1-mini",
-        k=6, lens_runs=3, quiet=True, max_workers=4,
-    )
-    display(live)
-    print("Checkpoints:", live.get("checkpoint_dir"))
 """
     ),
     md(
