@@ -1,7 +1,14 @@
 import numpy as np
 import pandas as pd
 
-from multilogue.weight import doc_binary_presence, doc_profile, group_compare, kappa
+from multilogue.weight import (
+    doc_binary_presence,
+    doc_profile,
+    group_compare,
+    kappa,
+    soft_doc_profiles,
+    soft_group_compare,
+)
 
 
 def test_doc_profile_and_group_compare():
@@ -37,3 +44,33 @@ def test_doc_binary_presence():
 def test_kappa():
     assert kappa(["a", "b", "a", "b"], ["a", "b", "a", "b"]) == 1.0
     assert kappa(["a", "a", "b", "b"], ["a", "b", "a", "b"]) == 0.0
+
+
+def test_soft_doc_profiles_and_group_compare():
+    # Two lenses; docs in group A lean lens 0, group B lean lens 1
+    W = np.array([[0.9, 0.1], [0.1, 0.9], [0.5, 0.5]])
+    phrases = pd.DataFrame(
+        {
+            "doc_id": ["a1", "a1", "a2", "a2", "b1", "b1", "b2", "b2"],
+            "group": ["A", "A", "A", "A", "B", "B", "B", "B"],
+            "cluster": [0, 0, 0, 2, 1, 1, 1, 2],
+        }
+    )
+    P = soft_doc_profiles(phrases[phrases.group == "A"], W)
+    assert P.shape[1] == 2
+    assert np.allclose(P.sum(axis=1), 1.0)
+    rng = np.random.default_rng(0)
+    out = soft_group_compare(
+        phrases,
+        W,
+        ["L0", "L1"],
+        "group",
+        rng,
+        groups=["A", "B"],
+        reps=200,
+    )
+    assert list(out["lens"]) == ["L0", "L1"]
+    assert "A_pct" in out.columns and "B_pct" in out.columns
+    assert "difference" in out.columns
+    # A should favour L0 relative to B
+    assert out.loc[out.lens == "L0", "difference"].iloc[0] < 0

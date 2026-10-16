@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -223,6 +223,56 @@ def select_sigma2_constrained(
 ) -> float:
     """Canonical rule: band (0.2, 0.6) × n_lenses."""
     return select_sigma2_in_band(stability_curve, n_lenses, CANONICAL_SUPPORT_BAND)
+
+
+def _neighbour_on_grid(
+    stability_curve: pd.DataFrame, n_lenses: float, step: int
+) -> float:
+    """σ² ``step`` grid points away from the constrained choice (clipped)."""
+    grid = np.sort(stability_curve["sigma2"].to_numpy(dtype=float))
+    canonical = select_sigma2_constrained(stability_curve, n_lenses)
+    i = int(np.argmin(np.abs(grid - canonical)))
+    return float(grid[min(max(i + step, 0), len(grid) - 1)])
+
+
+def select_sigma2_one_step_harder(
+    stability_curve: pd.DataFrame, n_lenses: float
+) -> float:
+    """Grid point just below constrained σ²* (sharper memberships)."""
+    return _neighbour_on_grid(stability_curve, n_lenses, -1)
+
+
+def select_sigma2_one_step_softer(
+    stability_curve: pd.DataFrame, n_lenses: float
+) -> float:
+    """Grid point just above constrained σ²* (softer memberships)."""
+    return _neighbour_on_grid(stability_curve, n_lenses, +1)
+
+
+def select_sigma2_hard(
+    stability_curve: pd.DataFrame, n_lenses: float = 0.0
+) -> float:
+    """Smallest σ² on the swept grid (near-hard assignment reference)."""
+    return float(stability_curve["sigma2"].min())
+
+
+SIGMA2_RULES: dict[str, Callable[[pd.DataFrame, float], float]] = {
+    "constrained": select_sigma2_constrained,
+    "one_step_harder": select_sigma2_one_step_harder,
+    "one_step_softer": select_sigma2_one_step_softer,
+    "hard": select_sigma2_hard,
+}
+
+
+def apply_sigma2_rule(
+    rule: str, stability_curve: pd.DataFrame, n_lenses: float
+) -> float:
+    """Look up ``rule`` in :data:`SIGMA2_RULES` and evaluate it."""
+    if rule not in SIGMA2_RULES:
+        raise ValueError(
+            f"Unknown sigma2_rule {rule!r}; expected one of {list(SIGMA2_RULES)}"
+        )
+    return SIGMA2_RULES[rule](stability_curve, n_lenses)
 
 
 def sigma2_sweep_select(

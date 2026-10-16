@@ -62,6 +62,78 @@ def group_compare(
     return out.round(1)
 
 
+def soft_doc_profiles(
+    phrases: pd.DataFrame,
+    W: np.ndarray,
+    *,
+    doc_col: str = "doc_id",
+    cluster_col: str = "cluster",
+) -> pd.DataFrame:
+    """Per document: mean mixture-weight vector of its points (rows sum ~1).
+
+    ``W`` is ``(n_clusters, n_lenses)``; ``phrases[cluster_col]`` indexes rows of ``W``.
+    """
+    cids = phrases[cluster_col].to_numpy(dtype=int)
+    M = pd.DataFrame(W[cids], index=phrases.index)
+    return M.groupby(phrases[doc_col]).mean()
+
+
+def soft_group_compare(
+    phrases: pd.DataFrame,
+    W: np.ndarray,
+    lens_names: list,
+    group_col: str,
+    rng: np.random.Generator,
+    *,
+    groups: list | None = None,
+    doc_col: str = "doc_id",
+    cluster_col: str = "cluster",
+    reps: int = 2000,
+    min_gap: float = 3.0,
+    value_col: str = "lens",
+) -> pd.DataFrame:
+    """Document-weighted soft lens shares per group with cluster-bootstrap intervals.
+
+    When exactly two groups are present, also reports group2-minus-group1
+    difference columns (same convention as :func:`group_compare`).
+    """
+    groups = groups or sorted(phrases[group_col].dropna().unique())
+    if len(groups) < 1:
+        return pd.DataFrame()
+    P = {
+        g: soft_doc_profiles(
+            phrases[phrases[group_col] == g],
+            W,
+            doc_col=doc_col,
+            cluster_col=cluster_col,
+        ).to_numpy()
+        for g in groups
+    }
+    if any(len(p) == 0 for p in P.values()):
+        return pd.DataFrame()
+    B = {
+        g: p[rng.integers(0, len(p), size=(reps, len(p)))].mean(1) * 100
+        for g, p in P.items()
+    }
+    out = pd.DataFrame({value_col: list(lens_names)})
+    for g in groups:
+        safe = str(g)
+        out[f"{safe}_pct"] = P[g].mean(0) * 100
+        out[f"{safe}_lo"] = np.percentile(B[g], 2.5, 0)
+        out[f"{safe}_hi"] = np.percentile(B[g], 97.5, 0)
+        out[f"docs_{safe}"] = len(P[g])
+    if len(groups) == 2:
+        g0, g1 = groups
+        d = B[g1] - B[g0]
+        out["difference"] = out[f"{g1}_pct"] - out[f"{g0}_pct"]
+        out["diff_lo"] = np.percentile(d, 2.5, 0)
+        out["diff_hi"] = np.percentile(d, 97.5, 0)
+        out["clear"] = ((out.diff_lo > 0) | (out.diff_hi < 0)) & (
+            out.difference.abs() >= min_gap
+        )
+    return out.round(1)
+
+
 def doc_binary_presence(
     df: pd.DataFrame,
     cluster_col: str,

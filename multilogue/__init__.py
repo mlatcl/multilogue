@@ -8,7 +8,7 @@ from .llm import LogClient, ReplayClient, ReplayMiss, StageRunner
 from .multiverse import enumerate_configurations, run_multiverse, variance_decomposition
 from .protocols import LLMClient, Phrase, Unit
 from .text import get_list, parse_json, quote_support, sha
-from .weight import doc_profile, group_compare, kappa
+from .weight import doc_profile, group_compare, kappa, soft_doc_profiles, soft_group_compare
 
 __version__ = "0.1.0"
 
@@ -36,6 +36,8 @@ __all__ = [
     "run_multiverse",
     "run_validation_experiment",
     "sha",
+    "soft_doc_profiles",
+    "soft_group_compare",
     "variance_decomposition",
     "__version__",
 ]
