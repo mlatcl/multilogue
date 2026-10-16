@@ -29,6 +29,105 @@ from .report import evidence_pack, write_findings, write_manifest
 from .soft import soft_mapping_from_hard
 from .weight import group_compare, soft_group_compare
 
+# Preferred municipal cycling framings for CIMT-style German corpora (notebook 09).
+CYCLING_LENS_NAMES = (
+    "Radwege und Führung",
+    "Parken und Abstellen",
+    "Fahrbahn und Oberfläche",
+    "Knotenpunkte und Straßenbahn",
+    "Zugang und Rheinufer",
+    "Sicherheit im Mischverkehr",
+)
+
+CYCLING_LABEL_PROMPT = (
+    "Beschrifte dieses Themencluster auf Deutsch. "
+    "Return JSON with keys label and description. "
+    "label: kurze deutsche Überschrift (höchstens sechs Wörter), kein Englisch. "
+    "description: ein deutscher Satz.\n"
+    "Phrases:\n<<PHRASES>>"
+)
+
+CYCLING_LENS_PROMPT = (
+    "Return JSON with key lenses: a list of objects "
+    "{name, description, clusters}. "
+    "Prefer these German framing names when they fit (merge unused names; "
+    "do not invent English names):\n"
+    + "\n".join(f"- {n}" for n in CYCLING_LENS_NAMES)
+    + "\n"
+    "Group every cluster_id into exactly one lens. "
+    "clusters must be an array of cluster_id integers "
+    "from 0 to <<K_MINUS_1>> inclusive. "
+    "Split parking from protected lanes; keep junction/tram risk separate "
+    "from general path design when the phrases support it.\n"
+    "<<CLUSTERS>>"
+)
+
+
+def gold_argument_format_compare(
+    units: list[dict[str, Any]],
+    *,
+    formats: tuple[str, ...] | None = None,
+    code_key: str = "code",
+) -> pd.DataFrame:
+    """Document-weighted major-position / premise shares by format (CIMT gold).
+
+    Matches the Romberg & Conrad (2021) format contrast: dialogues are
+    premise-rich; the Bonn survey is major-position-heavy. Units with
+    ``meta.code`` in ``{mpos, premise, mpos+premise}`` contribute; ``non-arg``
+    is dropped. ``mpos+premise`` counts toward both rates.
+    """
+    rows: list[dict[str, Any]] = []
+    for u in units:
+        code = (u.get("meta") or {}).get(code_key)
+        if code in (None, "", "non-arg"):
+            continue
+        fmt = u.get("format") or u.get("group")
+        if fmt is None:
+            continue
+        rows.append(
+            {
+                "doc_id": u["doc_id"],
+                "format": str(fmt),
+                "is_mpos": code in ("mpos", "mpos+premise"),
+                "is_premise": code in ("premise", "mpos+premise"),
+            }
+        )
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "metric",
+                *[f"{f}_pct" for f in (formats or ())],
+                "difference",
+                "docs_a",
+                "docs_b",
+            ]
+        )
+    df = pd.DataFrame(rows)
+    fmt_levels = list(formats) if formats else sorted(df["format"].unique())
+    if len(fmt_levels) < 2:
+        fmt_levels = sorted(df["format"].unique())
+    g0, g1 = fmt_levels[0], fmt_levels[1]
+
+    def _doc_means(mask_col: str) -> dict[str, Any]:
+        doc = (
+            df.groupby(["format", "doc_id"], as_index=False)[mask_col]
+            .mean()
+            .rename(columns={mask_col: "share"})
+        )
+        out: dict[str, Any] = {"metric": mask_col.replace("is_", "") + "_share"}
+        means = {}
+        counts = {}
+        for f in (g0, g1):
+            sub = doc[doc["format"] == f]["share"]
+            means[f] = float(100 * sub.mean()) if len(sub) else float("nan")
+            counts[f] = int(len(sub))
+            out[f"{f}_pct"] = means[f]
+            out[f"docs_{f}"] = counts[f]
+        out["difference"] = means[g1] - means[g0]
+        return out
+
+    return pd.DataFrame([_doc_means("is_mpos"), _doc_means("is_premise")])
+
 
 def run_validation_experiment(
     out_dir: str | Path,
@@ -274,6 +373,8 @@ def run_formats_complexity_demo(
     max_workers: int = 2,
     extract_system: str = "extract",
     extract_user_for_unit: Any | None = None,
+    label_prompt_template: str | None = None,
+    lens_prompt_template: str | None = None,
 ) -> dict[str, Any]:
     """Formats-style pipeline: format labels, hard+soft compare, EMD, format-gap ℓ.
 
@@ -281,6 +382,11 @@ def run_formats_complexity_demo(
     ``units`` (e.g. CIMT format pair) and an ``OpenAIClient`` to run live; results
     resume from ``out_dir/checkpoints`` via StageRunner fingerprints — re-runs
     skip completed items until the fingerprint (prompt/model/version) changes.
+
+    Optional ``label_prompt_template`` / ``lens_prompt_template`` override the
+    default English JSON prompts (use :data:`CYCLING_LABEL_PROMPT` /
+    :data:`CYCLING_LENS_PROMPT` for German municipal framings). Lens templates
+    may include ``<<K_MINUS_1>>``, replaced with ``k_eff - 1``.
 
     Do not commit checkpoint JSONL that contains participant text; keep under
     gitignored ``outputs/``.
@@ -305,6 +411,10 @@ def run_formats_complexity_demo(
         synthetic = False
     write_units_json(units, out / "format_units.json")
     units_by_id = {u["unit_id"]: u for u in units}
+
+    gold_cmp = gold_argument_format_compare(units, formats=formats)
+    if len(gold_cmp):
+        gold_cmp.to_csv(tables / "gold_argument_format_compare.csv", index=False)
 
     client = client or FakeClient()
     label_model = label_model or extract_model
@@ -374,6 +484,10 @@ def run_formats_complexity_demo(
     verified["centroid_sim"] = (E * centroids[labels]).sum(1)
 
     cluster_units = example_phrases_for_clusters(verified, k_eff, seed)
+    label_tmpl = label_prompt_template or (
+        "Return JSON with keys label and description.\n"
+        "Phrases:\n<<PHRASES>>"
+    )
     lab = runner.run(
         f"cluster_labels_k{k_eff}",
         cluster_units,
@@ -381,13 +495,10 @@ def run_formats_complexity_demo(
         make_label_work(
             client,
             system="label",
-            prompt_template=(
-                "Return JSON with keys label and description.\n"
-                "Phrases:\n<<PHRASES>>"
-            ),
+            prompt_template=label_tmpl,
             model=label_model,
         ),
-        f"labels|k{k_eff}|{label_model}|json-v2",
+        f"labels|k{k_eff}|{label_model}|json-v3|{hash(label_tmpl) & 0xFFFF:x}",
         quiet=quiet,
     )
     names = {
@@ -403,6 +514,15 @@ def run_formats_complexity_demo(
     )
     n_lens_runs = max(2, lens_runs)
     lens_run_ids = list(range(1, n_lens_runs + 1))
+    lens_tmpl = lens_prompt_template or (
+        "Return JSON with key lenses: a list of objects "
+        "{name, description, clusters}. "
+        "Group every cluster_id into exactly one lens. "
+        "clusters must be an array of cluster_id integers "
+        "from 0 to <<K_MINUS_1>> inclusive.\n"
+        "<<CLUSTERS>>"
+    )
+    lens_tmpl = lens_tmpl.replace("<<K_MINUS_1>>", str(k_eff - 1))
     lens_runs_raw = runner.run(
         f"lenses_k{k_eff}",
         lens_run_ids,
@@ -410,19 +530,12 @@ def run_formats_complexity_demo(
         make_lens_work(
             client,
             system="lens",
-            prompt_template=(
-                "Return JSON with key lenses: a list of objects "
-                "{name, description, clusters}. "
-                "Group every cluster_id into exactly one lens. "
-                "clusters must be an array of cluster_id integers "
-                f"from 0 to {k_eff - 1} inclusive.\n"
-                "<<CLUSTERS>>"
-            ),
+            prompt_template=lens_tmpl,
             cluster_description=cl_desc,
             model=label_model,
             k=k_eff,
         ),
-        f"lenses|k{k_eff}|{label_model}|lens-v3|{cl_desc[:80]}",
+        f"lenses|k{k_eff}|{label_model}|lens-v4|{hash(lens_tmpl) & 0xFFFF:x}|{cl_desc[:60]}",
         quiet=quiet,
     )
     label_missing = runner.status.get(f"cluster_labels_k{k_eff}", {}).get("missing", [])
@@ -617,6 +730,7 @@ def run_formats_complexity_demo(
         compare=hard_cmp,
         multiverse=multi,
         variance_shares=shares,
+        gold_compare=gold_cmp if len(gold_cmp) else None,
         group_col="format",
         title="Formats-complexity findings",
     )
@@ -638,6 +752,7 @@ def run_formats_complexity_demo(
         "n_distinct_lenses": n_distinct_lenses,
         "label_stage_missing": label_missing,
         "lens_stage_missing": lens_missing,
+        "gold_argument_rows": int(len(gold_cmp)),
         "analogy": "ai-dialogue-formats Address stack on public/synthetic stand-in",
     }
     write_manifest(out / "run_manifest.json", summary)

@@ -191,6 +191,7 @@ def findings_markdown(
     compare: pd.DataFrame | None = None,
     multiverse: pd.DataFrame | None = None,
     variance_shares: pd.DataFrame | None = None,
+    gold_compare: pd.DataFrame | None = None,
     group_col: str = "format",
     groups: Sequence[str] | None = None,
     title: str = "Findings",
@@ -217,6 +218,28 @@ def findings_markdown(
         )
         lines.append(f"By {group_col}: {g_bits}.")
     lines.append("")
+
+    if gold_compare is not None and len(gold_compare) and len(groups) >= 2:
+        g0, g1 = groups[0], groups[1]
+        lines.append("## Gold argument structure (CIMT codes)")
+        lines.append("")
+        lines.append(
+            "Document-weighted shares of major position (*mpos*) and premise "
+            "from the dataset's gold `meta.code` — the format contrast "
+            "Romberg & Conrad (2021) emphasise (dialogue premise-rich; "
+            "survey major-position-heavy). No LLM involved."
+        )
+        lines.append("")
+        for r in gold_compare.itertuples():
+            pa = getattr(r, f"{g0}_pct", float("nan"))
+            pb = getattr(r, f"{g1}_pct", float("nan"))
+            diff = getattr(r, "difference", float("nan"))
+            metric = getattr(r, "metric", "?")
+            lines.append(
+                f"- **{metric}**: {g0} {pa:.0f}% vs {g1} {pb:.0f}% "
+                f"(difference {diff:+.1f} pp)"
+            )
+        lines.append("")
 
     cat = cluster_catalogue(phrases, n_examples=n_examples)
     lines.append("## Clusters")
@@ -324,6 +347,7 @@ def write_findings(
     compare: pd.DataFrame | None = None,
     multiverse: pd.DataFrame | None = None,
     variance_shares: pd.DataFrame | None = None,
+    gold_compare: pd.DataFrame | None = None,
     group_col: str = "format",
     title: str = "Findings",
 ) -> Path:
@@ -340,6 +364,7 @@ def write_findings(
         compare=compare,
         multiverse=multiverse,
         variance_shares=variance_shares,
+        gold_compare=gold_compare,
         group_col=group_col,
         groups=groups,
         title=title,

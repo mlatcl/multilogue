@@ -1373,10 +1373,10 @@ Public-dialogue studies often ask whether *how* people are convened changes
 *what* they raise — workshop versus survey, chatbot versus in-person. Multilogue
 does not hard-code “format”; it supplies the Address machinery with a group
 column and a consumer metric $\\ell$. This notebook teaches that pattern: Access
-on a public format pair, then Address that prefers a cached CIMT LLM run
-(resuming via StageRunner when an API key is present), with a FakeClient
-formats demo as the offline fallback — soft contrasts, document EMD, and a
-multiverse over analytic decisions.
+on a public format pair; a paper-aligned gold $\\ell$ (major position vs premise
+by format); then Address that prefers a cached CIMT LLM run at $k{=}10$ with
+German municipal cycling lenses (resuming via StageRunner when an API key is
+present), with a FakeClient formats demo as the offline fallback.
 """,
         )
     ),
@@ -1432,6 +1432,41 @@ display(unit_size_table(access_units).describe())
     ),
     md(
         """
+## Gold $\\ell$ — major position vs premise by format
+
+Romberg & Conrad (2021) report that map *dialogue* contributions are longer and
+**premise-rich**, while the Bonn *survey* is short and **major-position-heavy**.
+That contrast uses the dataset's gold `meta.code` (`mpos` / `premise`), not LLM
+topics. The next cell is the paper-aligned headline $\\ell$: document-weighted
+shares of each code by format. It needs no API key.
+"""
+    ),
+    code(
+        """
+from multilogue.experiment import gold_argument_format_compare
+
+gold_units = cimt_units if cimt_units is not None else access_units
+gold_cmp = gold_argument_format_compare(gold_units, formats=("dialogue", "survey"))
+if len(gold_cmp):
+    display(gold_cmp)
+    for r in gold_cmp.itertuples():
+        print(
+            f"{r.metric}: dialogue {r.dialogue_pct:.1f}% vs survey {r.survey_pct:.1f}% "
+            f"(Δ {r.difference:+.1f} pp)"
+        )
+else:
+    print("No gold argument codes on these units (synthetic Access fallback).")
+"""
+    ),
+    md(
+        """
+The sign of $\\Delta$ (survey − dialogue) should be **positive for mpos** and
+**negative for premise** if this slice reproduces the paper. Topic clustering
+below is a separate Address question.
+"""
+    ),
+    md(
+        """
 ## Address — cache first, then FakeClient fallback
 
 StageRunner checkpoints under `outputs/formats_cimt_llm/` mean a prior CIMT LLM
@@ -1439,7 +1474,10 @@ run can be reused without paying again. The next cell therefore:
 
 1. loads `.env` if present;
 2. if `OPENAI_API_KEY` is set and CIMT units exist — *resume or recache* the live
-   demo (completed fingerprints are skipped);
+   demo at $k{=}10$ with **German labels** and a fixed municipal cycling lens
+   vocabulary (paths, parking, surface, junctions/tram, access/Rhein, mixed
+   traffic). Completed extract/embed fingerprints are reused; new $k$ and prompts
+   re-run cluster labels and lenses;
 3. else if a complete cached run is already on disk — use those tables;
 4. else run the offline FakeClient formats demo so Colab / CI still work.
 
@@ -1454,7 +1492,11 @@ import os
 from pathlib import Path
 from IPython.display import display, Markdown
 from multilogue.config import load_dotenv
-from multilogue.experiment import run_formats_complexity_demo
+from multilogue.experiment import (
+    run_formats_complexity_demo,
+    CYCLING_LABEL_PROMPT,
+    CYCLING_LENS_PROMPT,
+)
 from multilogue import viz
 from multilogue.report import (
     cluster_catalogue, findings_markdown, top_phrases_by_group, write_findings,
@@ -1488,7 +1530,7 @@ if key and cimt_units is not None:
     ]
     print(
         f"Live / resume CIMT Address → {LLM_OUT} "
-        f"({len(units_live)} units; checkpoints reused when fingerprints match)"
+        f"(k=10, German cycling lenses; {len(units_live)} units)"
     )
     summary = run_formats_complexity_demo(
         LLM_OUT,
@@ -1498,7 +1540,9 @@ if key and cimt_units is not None:
         extract_model="gpt-4.1-mini",
         embed_model="text-embedding-3-small",
         label_model="gpt-4.1-mini",
-        k=6, lens_runs=3, quiet=True, max_workers=4,
+        k=10, lens_runs=3, quiet=True, max_workers=4,
+        label_prompt_template=CYCLING_LABEL_PROMPT,
+        lens_prompt_template=CYCLING_LENS_PROMPT,
     )
     tables = CACHE_TABLES
     address_source = "cimt_llm"
@@ -1510,6 +1554,11 @@ elif cache_ready:
     if man.is_file():
         summary = json.loads(man.read_text())
         display(summary)
+        if summary.get("k", 0) < 10:
+            print(
+                "Note: cache used k =", summary.get("k"),
+                "— re-run with OPENAI_API_KEY to refresh at k=10 + German lenses.",
+            )
 else:
     out = Path("outputs/notebook_formats_complexity")
     print(
@@ -1531,6 +1580,7 @@ print("Checkpoints:", LLM_OUT / "checkpoints" if address_source != "fakeclient" 
         """
 for name in [
     "yield.csv",
+    "gold_argument_format_compare.csv",
     "group_compare_format_lenses.csv",
     "soft_group_compare_format.csv",
     "sigma2_rules.csv",
@@ -1555,8 +1605,9 @@ if isinstance(summary, dict):
         """
 ## Reading the run
 
-Findings summarise clusters, top concerns by format, and which analytic
-decisions move $\\ell$. This cell only reads tables — no LLM calls.
+Findings summarise gold argument structure (when present), clusters, top
+concerns by format, and which analytic decisions move the topic-gap $\\ell$.
+This cell only reads tables — no LLM calls.
 """
     ),
     code(
@@ -1574,6 +1625,10 @@ shares = (
     pd.read_csv(tables / "variance_shares_format_gap.csv")
     if (tables / "variance_shares_format_gap.csv").is_file() else None
 )
+gold_path = tables / "gold_argument_format_compare.csv"
+gold_tab = pd.read_csv(gold_path) if gold_path.is_file() else (
+    gold_cmp if len(gold_cmp) else None
+)
 display(Markdown("### Cluster catalogue"))
 display(cluster_catalogue(ph))
 display(Markdown("### Top concerns by format"))
@@ -1589,11 +1644,13 @@ title = (
     else "Dialogue vs survey — findings (FakeClient)"
 )
 md_text = findings_markdown(
-    ph, compare=cmp, multiverse=multi, variance_shares=shares, title=title,
+    ph, compare=cmp, multiverse=multi, variance_shares=shares,
+    gold_compare=gold_tab, title=title,
 )
 write_findings(
     ph, tables / "findings.md", compare=cmp,
-    multiverse=multi, variance_shares=shares, title=title,
+    multiverse=multi, variance_shares=shares,
+    gold_compare=gold_tab, title=title,
 )
 display(Markdown(md_text))
 """

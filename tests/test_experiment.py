@@ -3,6 +3,7 @@ from pathlib import Path
 from multilogue.dummy import FakeClient, make_units
 from multilogue.experiment import (
     format_tagged_units,
+    gold_argument_format_compare,
     run_formats_complexity_demo,
     run_validation_experiment,
 )
@@ -47,6 +48,29 @@ def test_format_tagged_units():
     units = format_tagged_units(n_docs_per_group=2, units_per_doc=1)
     assert {u["format"] for u in units} == {"workshop", "survey"}
     assert all(u["format"] == u["group"] for u in units)
+
+
+def test_gold_argument_format_compare():
+    units = [
+        {"unit_id": "d1", "doc_id": "D1", "format": "dialogue", "text": "x",
+         "meta": {"code": "premise"}},
+        {"unit_id": "d2", "doc_id": "D1", "format": "dialogue", "text": "x",
+         "meta": {"code": "premise"}},
+        {"unit_id": "d3", "doc_id": "D2", "format": "dialogue", "text": "x",
+         "meta": {"code": "mpos"}},
+        {"unit_id": "s1", "doc_id": "S1", "format": "survey", "text": "x",
+         "meta": {"code": "mpos"}},
+        {"unit_id": "s2", "doc_id": "S1", "format": "survey", "text": "x",
+         "meta": {"code": "mpos"}},
+        {"unit_id": "s3", "doc_id": "S2", "format": "survey", "text": "x",
+         "meta": {"code": "premise"}},
+    ]
+    tab = gold_argument_format_compare(units, formats=("dialogue", "survey"))
+    assert list(tab["metric"]) == ["mpos_share", "premise_share"]
+    # dialogue docs: D1=0% mpos, D2=100% → 50%; survey: S1=100%, S2=0% → 50%
+    mpos = tab.set_index("metric").loc["mpos_share"]
+    assert abs(mpos["dialogue_pct"] - 50.0) < 1e-6
+    assert abs(mpos["survey_pct"] - 50.0) < 1e-6
 
 
 def test_formats_complexity_demo_tmp(tmp_path: Path):
