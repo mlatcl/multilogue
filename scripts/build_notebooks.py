@@ -1443,7 +1443,10 @@ shares of each code by format. It needs no API key.
     ),
     code(
         """
-from multilogue.experiment import gold_argument_format_compare
+import importlib
+import multilogue.experiment as _ml_exp
+importlib.reload(_ml_exp)  # pick up edits without a full kernel restart
+gold_argument_format_compare = _ml_exp.gold_argument_format_compare
 
 gold_units = cimt_units if cimt_units is not None else access_units
 gold_cmp = gold_argument_format_compare(gold_units, formats=("dialogue", "survey"))
@@ -1489,14 +1492,15 @@ synthetic fallback keeps the same `format` group mechanics without an API.
         """
 import json
 import os
+import importlib
 from pathlib import Path
 from IPython.display import display, Markdown
 from multilogue.config import load_dotenv
-from multilogue.experiment import (
-    run_formats_complexity_demo,
-    CYCLING_LABEL_PROMPT,
-    CYCLING_LENS_PROMPT,
-)
+import multilogue.experiment as _ml_exp
+importlib.reload(_ml_exp)
+run_formats_complexity_demo = _ml_exp.run_formats_complexity_demo
+CYCLING_LABEL_PROMPT = _ml_exp.CYCLING_LABEL_PROMPT
+CYCLING_LENS_PROMPT = _ml_exp.CYCLING_LENS_PROMPT
 from multilogue import viz
 from multilogue.report import (
     cluster_catalogue, findings_markdown, top_phrases_by_group, write_findings,
