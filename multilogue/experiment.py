@@ -449,6 +449,8 @@ def run_formats_complexity_demo(
     hard_cmp.to_csv(tables / "group_compare_format_lenses.csv", index=False)
 
     soft_summary: dict[str, Any] = {"skipped": True}
+    soft_W_by_rule: dict[str, tuple[np.ndarray, list[str]]] = {}
+    soft_curve: pd.DataFrame | None = None
     if include_soft:
         try:
             from . import soft as ms
@@ -461,19 +463,21 @@ def run_formats_complexity_demo(
                     hard.setdefault(c, "Other")
                 mappings.append(soft_mapping_from_hard(hard))
             sweep = ms.sigma2_sweep_select(centroids, mappings)
-            curve = pd.DataFrame(sweep["curve"])
-            curve.to_csv(tables / "sigma2_stability_curve.csv", index=False)
+            soft_curve = pd.DataFrame(sweep["curve"])
+            soft_curve.to_csv(tables / "sigma2_stability_curve.csv", index=False)
             sigma2 = float(sweep["sigma2_best"])
-            # Neighbour rules (CIP-0006) — same curve, different operating points
             n_lens = ms.mean_n_lenses(mappings)
             rules = {
-                rule: float(ms.apply_sigma2_rule(rule, curve, n_lens))
+                rule: float(ms.apply_sigma2_rule(rule, soft_curve, n_lens))
                 for rule in ms.SIGMA2_RULES
             }
             pd.Series(rules, name="sigma2").to_csv(tables / "sigma2_rules.csv")
-            W, lens_names = ms.compute_mixture_weights(
-                centroids, soft_mapping_from_hard(lens_of), sigma2
-            )
+            soft_map = soft_mapping_from_hard(lens_of)
+            for rule, s2 in rules.items():
+                W_r, names_r = ms.compute_mixture_weights(centroids, soft_map, s2)
+                soft_W_by_rule[rule] = (W_r, names_r)
+            # Main soft compare uses σ²* (stability-selected)
+            W, lens_names = ms.compute_mixture_weights(centroids, soft_map, sigma2)
             pd.DataFrame(W, columns=lens_names).to_csv(
                 tables / "lens_mixture_weights.csv", index_label="cluster"
             )
@@ -505,6 +509,7 @@ def run_formats_complexity_demo(
                 )
         except Exception as exc:
             soft_summary = {"skipped": True, "error": str(exc)}
+            soft_W_by_rule = {}
 
     distance_summary: dict[str, Any] = {"skipped": True}
     if include_distance:
@@ -535,23 +540,68 @@ def run_formats_complexity_demo(
         except Exception as exc:
             distance_summary = {"skipped": True, "error": str(exc)}
 
-    def format_gap_ell(cfg: dict) -> dict:
-        """Study-local ℓ: workshop−survey share gap on Lens A (formats-style)."""
-        sub_w = verified[verified.format == formats[0]]
-        sub_s = verified[verified.format == formats[1]]
-        share_w = float((sub_w.lens == "Lens A").mean()) if len(sub_w) else 0.0
-        share_s = float((sub_s.lens == "Lens A").mean()) if len(sub_s) else 0.0
-        gap = share_w - share_s
-        return {
-            "ell_format_gap": gap + 0.01 * cfg["k"] + 0.02 * cfg["quote_threshold"]
-        }
-
-    configs = enumerate_configurations(
-        {"k": [k_eff, max(k_eff + 1, 3)], "quote_threshold": [0.7, 0.8]}
+    # Multiverse over *analytic decisions* reusable from this run (no new LLM calls).
+    # ℓ = document-weighted format gap (group1 − group0) on the lens with largest |diff|.
+    g0, g1 = formats[0], formats[1]
+    membership_levels = ["hard"] + (
+        [f"soft:{r}" for r in soft_W_by_rule] if soft_W_by_rule else []
     )
+    multi_dims = {
+        "quote_threshold": [0.0, 0.7, 0.8],
+        "kind_filter": ["all", "concern"],
+        "membership": membership_levels,
+    }
+
+    def _subset(cfg: dict) -> pd.DataFrame:
+        sub = verified
+        thr = float(cfg["quote_threshold"])
+        if thr > 0 and "quote_support" in sub.columns:
+            sub = sub[sub["quote_support"].fillna(0) >= thr]
+        if cfg["kind_filter"] != "all" and "kind" in sub.columns:
+            sub = sub[sub["kind"] == cfg["kind_filter"]]
+        return sub
+
+    def format_gap_ell(cfg: dict) -> dict:
+        sub = _subset(cfg)
+        out: dict[str, Any] = {
+            "ell_format_gap": float("nan"),
+            "gap_lens": None,
+            "n_phrases": int(len(sub)),
+            "n_docs": int(sub["doc_id"].nunique()) if len(sub) else 0,
+        }
+        if len(sub) < 6 or sub["format"].nunique() < 2:
+            return out
+        local_rng = np.random.default_rng(seed + int(1000 * cfg["quote_threshold"]))
+        mem = cfg["membership"]
+        if mem == "hard":
+            cmp = group_compare(
+                sub, "format", "lens", None, local_rng, groups=[g0, g1], reps=200
+            )
+        else:
+            rule = mem.split(":", 1)[1]
+            W_r, names_r = soft_W_by_rule[rule]
+            cmp = soft_group_compare(
+                sub, W_r, names_r, "format", local_rng, groups=[g0, g1], reps=200
+            )
+        if cmp.empty or "difference" not in cmp.columns:
+            return out
+        row = cmp.loc[cmp["difference"].abs().idxmax()]
+        out.update(
+            {
+                "ell_format_gap": float(row["difference"]),
+                "gap_lens": str(row.get("lens", "")),
+                f"{g0}_pct": float(row.get(f"{g0}_pct", float("nan"))),
+                f"{g1}_pct": float(row.get(f"{g1}_pct", float("nan"))),
+                "clear": bool(row.get("clear", False)),
+            }
+        )
+        return out
+
+    configs = enumerate_configurations(multi_dims)
     multi = run_multiverse(configs, format_gap_ell)
     multi.to_csv(tables / "multiverse_format_gap.csv", index=False)
-    shares = variance_decomposition(multi, "ell_format_gap", ["k", "quote_threshold"])
+    dim_cols = list(multi_dims)
+    shares = variance_decomposition(multi.dropna(subset=["ell_format_gap"]), "ell_format_gap", dim_cols)
     shares.to_csv(tables / "variance_shares_format_gap.csv", index=False)
 
     evidence_pack(
@@ -565,6 +615,8 @@ def run_formats_complexity_demo(
         verified,
         tables / "findings.md",
         compare=hard_cmp,
+        multiverse=multi,
+        variance_shares=shares,
         group_col="format",
         title="Formats-complexity findings",
     )

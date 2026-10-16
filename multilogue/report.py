@@ -189,13 +189,15 @@ def findings_markdown(
     phrases: pd.DataFrame,
     *,
     compare: pd.DataFrame | None = None,
+    multiverse: pd.DataFrame | None = None,
+    variance_shares: pd.DataFrame | None = None,
     group_col: str = "format",
     groups: Sequence[str] | None = None,
     title: str = "Findings",
     n_examples: int = 4,
     n_top: int = 6,
 ) -> str:
-    """Narrative markdown: yield, clusters, concerns, format contrasts."""
+    """Narrative markdown: yield, clusters, concerns, format contrasts, multiverse."""
     groups = list(groups or (
         sorted(phrases[group_col].dropna().unique())
         if group_col in phrases.columns
@@ -281,6 +283,37 @@ def findings_markdown(
         lines.append("```")
         lines.append("")
 
+    if variance_shares is not None and len(variance_shares):
+        lines.append("## Multiverse — which decisions move ℓ?")
+        lines.append("")
+        lines.append(
+            "ℓ is the document-weighted format gap (group₂ − group₁) on the lens "
+            "with largest |difference|, recomputed under each analytic configuration "
+            "(no new LLM calls)."
+        )
+        lines.append("")
+        for r in variance_shares.itertuples():
+            lines.append(
+                f"- **{r.dimension}**: {100 * float(r.variance_share):.1f}% of "
+                f"ℓ variance across the grid"
+            )
+        lines.append("")
+        if multiverse is not None and "ell_format_gap" in multiverse.columns:
+            m = multiverse.dropna(subset=["ell_format_gap"])
+            if len(m):
+                lo, hi = float(m.ell_format_gap.min()), float(m.ell_format_gap.max())
+                lines.append(
+                    f"Across {len(m)} configurations, ℓ ranges from "
+                    f"**{lo:.1f}** to **{hi:.1f}** percentage points."
+                )
+                if "gap_lens" in m.columns:
+                    top_lens = m["gap_lens"].value_counts().head(3)
+                    lines.append(
+                        "Most often the largest gap is on: "
+                        + ", ".join(f"{a} ({b})" for a, b in top_lens.items())
+                    )
+                lines.append("")
+
     return "\n".join(lines)
 
 
@@ -289,6 +322,8 @@ def write_findings(
     path: str | Path,
     *,
     compare: pd.DataFrame | None = None,
+    multiverse: pd.DataFrame | None = None,
+    variance_shares: pd.DataFrame | None = None,
     group_col: str = "format",
     title: str = "Findings",
 ) -> Path:
@@ -301,7 +336,13 @@ def write_findings(
         else []
     )
     md = findings_markdown(
-        phrases, compare=compare, group_col=group_col, groups=groups, title=title
+        phrases,
+        compare=compare,
+        multiverse=multiverse,
+        variance_shares=variance_shares,
+        group_col=group_col,
+        groups=groups,
+        title=title,
     )
     path.write_text(md, encoding="utf-8")
     cluster_catalogue(phrases).to_csv(
