@@ -73,7 +73,7 @@ See [SETUP.md](SETUP.md). Regenerate with `python scripts/build_notebooks.py`.
 
 ```bash
 pip install -e ".[dev]"
-pre-commit install   # nbstripout: strip notebook outputs on commit
+pre-commit install   # nbstripout + gitleaks (no outputs / no API keys in commits)
 multilogue-validate --out outputs/validation_smoke --verbose
 pytest tests/test_experiment.py tests/test_access.py tests/test_notebooks_smoke.py -q
 ```
