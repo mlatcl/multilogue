@@ -201,9 +201,81 @@ def mppca_fit(
     }
 
 
-def responsibilities_to_labels(responsibilities: np.ndarray) -> np.ndarray:
-    """MAP (hard) topic labels from soft responsibilities — late view only."""
+def responsibilities_to_labels(
+    responsibilities: np.ndarray,
+    *,
+    empty_label: int = -1,
+) -> np.ndarray:
+    """MAP (hard) topic labels from soft responsibilities.
+
+    **Late view only** — for LLM labelling / lens-partition prompts and
+    human tables. Soft responsibilities remain the primary stored state
+    (CIP-0017).
+
+    Rows that are all-zero or non-finite receive ``empty_label`` (default
+    ``-1``) instead of a spurious argmax onto topic 0.
+    """
     R = np.asarray(responsibilities, dtype=float)
     if R.ndim != 2:
         raise ValueError(f"responsibilities must be 2-D, got shape {R.shape}")
-    return np.argmax(R, axis=1).astype(int)
+    finite = np.isfinite(R)
+    R = np.where(finite, R, 0.0)
+    row_mass = R.sum(axis=1)
+    labels = np.argmax(R, axis=1).astype(int)
+    labels[row_mass <= 0] = empty_label
+    return labels
+
+
+def example_phrases_for_soft_topics(
+    phrases,
+    responsibilities: np.ndarray,
+    *,
+    n_top: int = 12,
+    n_sample: int = 6,
+    seed: int = 0,
+) -> list[dict]:
+    """Top-mass exemplars per topic for LLM / report harden views.
+
+    Ranks phrases by responsibility to each component, takes the top
+    ``n_top``, then optionally samples ``n_sample`` further phrases from
+    the remainder (deterministic under ``seed``). Empty components
+    (near-zero column mass) return an empty example list.
+
+    This is a **harden view** for labelling boundaries — not a change to
+    the soft topic geometry.
+    """
+    from .text import sha
+
+    phrases = list(phrases)
+    R = np.asarray(responsibilities, dtype=float)
+    if R.ndim != 2:
+        raise ValueError(f"responsibilities must be 2-D, got shape {R.shape}")
+    if len(phrases) != R.shape[0]:
+        raise ValueError(
+            f"phrases length {len(phrases)} != responsibilities rows {R.shape[0]}"
+        )
+    n, k = R.shape
+    rng = np.random.default_rng(seed)
+    units: list[dict] = []
+    for c in range(k):
+        mass = R[:, c]
+        if float(mass.sum()) <= 0:
+            units.append({"cluster": c, "examples": [], "key": f"{c}|empty"})
+            continue
+        order = np.argsort(-mass, kind="mergesort")  # stable
+        top_idx = order[: min(n_top, n)]
+        examples = [phrases[i] for i in top_idx]
+        rest_idx = order[n_top:]
+        if n_sample > 0 and len(rest_idx) > 0:
+            # Prefer phrases that still have some mass on this topic
+            rest_mass = mass[rest_idx]
+            eligible = rest_idx[rest_mass > 0]
+            if len(eligible) > 0:
+                take = min(n_sample, len(eligible))
+                chosen = rng.choice(eligible, size=take, replace=False)
+                # Stable order by descending mass among samples
+                chosen = chosen[np.argsort(-mass[chosen], kind="mergesort")]
+                examples.extend(phrases[i] for i in chosen)
+        key = f"{c}|" + sha("|".join(str(p) for p in examples))[:10]
+        units.append({"cluster": int(c), "examples": examples, "key": key})
+    return units

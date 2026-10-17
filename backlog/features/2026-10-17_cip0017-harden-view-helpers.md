@@ -1,7 +1,7 @@
 ---
 id: "2026-10-17_cip0017-harden-view-helpers"
 title: "CIP-0017: harden-view helpers (MAP labels, exemplars for LLM I/O)"
-status: "Ready"
+status: "Completed"
 priority: "High"
 created: "2026-10-17"
 last_updated: "2026-10-17"
@@ -28,10 +28,10 @@ Hardening is a **view**, not a stored primary state.
 
 ## Acceptance Criteria
 
-- [ ] `responsibilities_to_labels` (or equivalent) = row-wise argmax; documented
-- [ ] Exemplar selection given phrases + \(R\) is deterministic under a seed
-- [ ] Unit tests: MAP matches `argmax`; empty/degenerate rows handled
-- [ ] Docstring states these are for LLM/report boundaries only
+- [x] `responsibilities_to_labels` (or equivalent) = row-wise argmax; documented
+- [x] Exemplar selection given phrases + \(R\) is deterministic under a seed
+- [x] Unit tests: MAP matches `argmax`; empty/degenerate rows handled
+- [x] Docstring states these are for LLM/report boundaries only
 
 ## Implementation Notes
 
@@ -47,3 +47,7 @@ pub-dialogue `label_cluster` / framing-lens cells should call these rather than 
 ### 2026-10-17
 
 Task created (Ready).
+
+### 2026-10-17 (impl)
+
+Completed in ``multilogue.mppca`` + ``tests/test_mppca_harden.py``.

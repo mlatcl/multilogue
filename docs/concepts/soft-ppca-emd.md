@@ -1,6 +1,15 @@
 # Soft PPCA lenses and Earth Mover's Distance
 
-Hard *k*-means plus a single lens map assigns each cluster to one framing. Multilogue also supports a soft layer (CIP-0005 / REQ-0008).
+Hard *k*-means plus a single lens map assigns each cluster to one framing. Multilogue also supports a soft layer (CIP-0005 / REQ-0008). Soft-throughout topic geometry (CIP-0017) adds a **second** PPCA mixture at phrase→topic via [`multilogue.mppca`](../api/mppca.md).
+
+## Two noise floors (CIP-0017)
+
+| Floor | Role | Rule |
+|-------|------|------|
+| Topic \(\sigma^2_{\mathrm{topic}}\) | MPPCA phrase→topic fit | Fixed for the analysis config (default in `mppca.DEFAULT_TOPIC_SIGMA2`) |
+| Lens \(\sigma^2_{\mathrm{lens}}\) | Soft lens mixture / σ²\* | Shared when scoring runs; chosen once by the EMD stability rule below, then fixed |
+
+The floors are **independent**. Do not re-fit a different σ² per lens-mapping replicate or per document.
 
 ## Soft mixture weights
 
@@ -22,7 +31,9 @@ Mixture weights feed document profiles and bootstrap group shares via [`soft_doc
 
 ## Document EMD
 
-Separately, [`multilogue.distance`](../api/distance.md) treats each document as a distribution over clusters and compares documents with EMD under a cosine ground cost between centroids. Classical MDS and PERMANOVA / PERMDISP test whether groups differ in *what* they raise, without using lens names.
+Separately, [`multilogue.distance`](../api/distance.md) treats each document as a distribution over topics and compares documents with EMD under a cosine ground cost between topic means. Classical MDS and PERMANOVA / PERMDISP test whether groups differ in *what* they raise, without using lens names.
+
+For **soft-throughout** consumers (CIP-0017), build those histograms with [`document_soft_topic_distributions`](../api/distance.md) (sum phrase→topic responsibilities per document). [`document_cluster_distributions`](../api/distance.md) remains the **hard-count** sensitivity / legacy path.
 
 Install the optional extra: `pip install 'multilogue[distance]'` (pulls in POT).
 

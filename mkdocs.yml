@@ -86,6 +86,7 @@ nav:
       - assess_base: api/assess_base.md
       - extract: api/extract.md
       - cluster: api/cluster.md
+      - mppca: api/mppca.md
       - soft: api/soft.md
       - distance: api/distance.md
       - weight: api/weight.md

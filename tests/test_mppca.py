@@ -107,6 +107,11 @@ def test_responsibilities_to_labels_argmax():
     assert list(responsibilities_to_labels(R)) == [1, 0]
 
 
+def test_responsibilities_to_labels_zero_row():
+    R = np.array([[0.0, 0.0], [0.6, 0.4]])
+    assert list(responsibilities_to_labels(R)) == [-1, 0]
+
+
 def test_mppca_rejects_bad_sigma2():
     rng = np.random.default_rng(0)
     X = rng.normal(size=(12, 4))

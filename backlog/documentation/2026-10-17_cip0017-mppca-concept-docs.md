@@ -1,7 +1,7 @@
 ---
 id: "2026-10-17_cip0017-mppca-concept-docs"
 title: "CIP-0017: concept docs for soft-throughout MPPCA topics"
-status: "Ready"
+status: "Completed"
 priority: "Medium"
 created: "2026-10-17"
 last_updated: "2026-10-17"
@@ -25,10 +25,10 @@ Update multilogue concept docs (topic-space / soft-PPCA / address pipeline) so s
 
 ## Acceptance Criteria
 
-- [ ] Concept doc states soft primary / harden-at-boundary
-- [ ] Two σ² knobs (topic vs lens) described; each fixed per run/config
-- [ ] Cookbook or notebook pointer shows fit → soft histogram → optional harden for labels
-- [ ] Hard k-means described as init / legacy view, not the Address default for CIP-0017 consumers
+- [x] Concept doc states soft primary / harden-at-boundary
+- [x] Two σ² knobs (topic vs lens) described; each fixed per run/config
+- [x] Cookbook or notebook pointer shows fit → soft histogram → optional harden for labels
+- [x] Hard k-means described as init / legacy view, not the Address default for CIP-0017 consumers
 
 ## Related
 
@@ -39,3 +39,7 @@ Update multilogue concept docs (topic-space / soft-PPCA / address pipeline) so s
 ### 2026-10-17
 
 Task created (Ready).
+
+### 2026-10-17 (impl)
+
+Updated topic-space, soft-ppca-emd (dual σ²), api/mppca.md.
