@@ -1,7 +1,7 @@
 ---
 id: "2026-10-17_cip0017-mppca-fit-primitive"
 title: "CIP-0017: MPPCA topic fit primitive (k-means init, EM, responsibilities)"
-status: "Ready"
+status: "In Progress"
 priority: "High"
 created: "2026-10-17"
 last_updated: "2026-10-17"
@@ -53,3 +53,8 @@ Prefer `multilogue.cluster` or a new `multilogue.mppca` module; do not leave the
 ### 2026-10-17
 
 Task created (Ready) when pub CIP-0017 Accepted.
+
+Started implementation: ``multilogue.mppca.mppca_fit`` with k-means init,
+fixed shared topic σ² (default 0.1), weighted PPCA EM, and tests in
+``tests/test_mppca.py``. MAP helper ``responsibilities_to_labels`` included
+for tests / late view (full harden-view task still open).
