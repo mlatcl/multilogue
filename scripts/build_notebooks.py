@@ -21,7 +21,7 @@ import nbformat as nbf
 GITHUB_REPO = "mlatcl/multilogue"
 GITHUB_BRANCH = "main"
 AUTHOR = "[Neil D. Lawrence](http://inverseprobability.com)"
-DATE = "2026-10-16"
+DATE = "2026-10-17"
 
 # Colab / path bootstrap only — no scientific imports here.
 SETUP = r'''#@title Setup (run first)
@@ -459,13 +459,14 @@ NOTEBOOKS["03_cluster.ipynb"] = [
     md(
         title_block(
             "03_cluster.ipynb",
-            "Shared topic space — embed, freeze, label, lens",
+            "Shared topic space — soft MPPCA, harden views, lenses",
             """
-Once phrases exist, we place them in one embedding space and partition with
-$k$-means. Two design choices matter more than the brand of embedder: frozen
-assignments when the phrase set is unchanged, and blind labels and lenses
-proposed without seeing group labels. This notebook teaches those choices and
-shows a PCA view as a diagnostic — not as the generative story for the phrases.
+Once phrases exist, we place them in one embedding space. Soft-throughout
+Address (CIP-0017) fits a **mixture of probabilistic PCAs**: $k$-means only
+initialises component means; soft responsibilities $r_{ik}$ are the primary
+topic state. Hard labels and exemplars are a *late view* for LLM labelling and
+lens prompts. This notebook teaches that split and shows a PCA view as a
+diagnostic — not as the generative story for the phrases.
 """,
         )
     ),
@@ -473,25 +474,24 @@ shows a PCA view as a diagnostic — not as the generative story for the phrases
         """
 # Introduction
 
-Hard clustering gives every phrase a single topic label. Multilogue embeds
-phrases, runs $k$-means, and optionally freezes the assignment vector so later
-notebooks do not silently reshuffle topics when $k$-means initialisation differs
-across machines.
+Hard $k$-means gives every phrase a single topic label. Soft-throughout instead
+keeps a distribution over topics. Multilogue's [`mppca_fit`](https://mlatcl.github.io/multilogue/api/mppca/)
+uses $k$-means only to seed means, then EM under a **fixed** topic noise
+$\\sigma^2_{\\mathrm{topic}}$ (independent of the lens-level $\\sigma^2$ in
+notebook 08).
 
-Labels name clusters; lenses group clusters into coarser framings (economic,
-social, …). Both are proposed from example phrases alone — *format-blind* or
-*group-blind* — so the taxonomy is not fitted to the comparison we later want
-to make.
+Labels name topics; lenses group topics into coarser framings. Both LLM steps
+consume a **harden view** (MAP labels / top-mass exemplars) — *format-blind* —
+so the taxonomy is not fitted to the comparison we later want to make.
 """
     ),
     md(
         """
-## Frozen assignments
+## Soft topics (MPPCA)
 
-$k$-means is sensitive to initialisation and is not bit-stable across machines.
-When the phrase set (and fingerprint) is unchanged we reuse saved assignments.
-That is a reproducibility device: the scientific claim is “these phrases under
-this embedding and $k$”, not “whatever $k$-means happened to return today”.
+Topic $\\sigma^2$ is fixed for the run (default `DEFAULT_TOPIC_SIGMA2`). Soft
+responsibilities are checkpointed as the geometry; MAP labels are derived when
+a discrete interface is required.
 """
     ),
     md(
@@ -499,9 +499,8 @@ this embedding and $k$”, not “whatever $k$-means happened to return today”
 ## PCA as a viewing device
 
 The scatter below projects embeddings onto the first two principal components.
-Classical PCA finds linear directions of high variance; it is a *view*, not the
-generative model for the phrases. Soft lens memberships under probabilistic PCA
-and $\\sigma^2$ chosen by earth mover's distance live in notebook 08.
+Classical PCA is a *view*, not the generative model. Soft lens memberships and
+document EMD on soft histograms live in notebook 08.
 """
     ),
     code(
@@ -513,8 +512,13 @@ from multilogue.dummy import FakeClient
 from multilogue.extract import make_extract_work, phrase_table
 from multilogue.llm import StageRunner
 from multilogue.cluster import (
-    Embedder, frozen_or_new_assignments, example_phrases_for_clusters,
-    make_label_work, make_lens_work, resolve_lenses,
+    Embedder, make_label_work, make_lens_work, resolve_lenses,
+)
+from multilogue.mppca import (
+    DEFAULT_TOPIC_SIGMA2,
+    mppca_fit,
+    responsibilities_to_labels,
+    example_phrases_for_soft_topics,
 )
 from multilogue import viz
 """
@@ -542,13 +546,21 @@ phrases = phrase_table(
 k = 4
 embedder = Embedder(root / "emb", client, model="fake-emb")
 E = np.asarray(embedder(phrases.phrase.tolist()), float)
-labels, centroids, frozen = frozen_or_new_assignments(
-    phrases, E, k, 0, root / "clusters",
-)
+fit = mppca_fit(E, k=k, sigma2=DEFAULT_TOPIC_SIGMA2, seed=0)
+R = fit["responsibilities"]
+means = fit["means"]
+labels = responsibilities_to_labels(R)
 phrases = phrases.copy()
-phrases["cluster"] = labels
-phrases["centroid_sim"] = (E * centroids[labels]).sum(1)
-print("frozen_assignments:", frozen)
+phrases["cluster"] = labels  # harden view for bars / lens map only
+# Cosine similarity to MAP topic mean (diagnostic)
+valid = labels >= 0
+phrases["centroid_sim"] = 0.0
+phrases.loc[valid, "centroid_sim"] = (E[valid] * means[labels[valid]]).sum(1)
+print(f"topic σ²={fit['sigma2']}; EM iters={fit['n_iter']}")
+print(f"mean max responsibility: {R.max(axis=1).mean():.3f}")
+(root / "clusters").mkdir(parents=True, exist_ok=True)
+np.save(root / "clusters" / "responsibilities.npy", R)
+np.save(root / "clusters" / "topic_means.npy", means)
 """
     ),
     code(
@@ -559,22 +571,27 @@ viz.embedding_scatter(E, phrases["cluster"], path=FIG / "03_pca_clusters.png")
     ),
     md(
         """
-Cluster sizes show whether $k$ produced empty or tiny topics. The PCA scatter
-colours phrases by hard cluster. Hopeless overlap suggests revisiting $k$ or the
-phrase set before interpreting shares.
+Cluster-size bars use the MAP harden view so empty topics are visible. Soft
+geometry remains in $R$. Hopeless overlap in the PCA scatter suggests revisiting
+$k$ or the phrase set before interpreting shares.
 """
     ),
     md(
         """
-## Blind labels and lenses
+## Blind labels and lenses (harden view)
 
-Labels name clusters; lenses group them. Researchers may edit the lens mapping
-afterwards — the point of the first pass is a blind proposal.
+Exemplars are ranked by soft mass on each topic; the LLM never sees raw
+responsibility matrices. Researchers may edit the lens mapping afterwards — the
+first pass stays blind.
 """
     ),
     code(
         """
-cluster_units = example_phrases_for_clusters(phrases, k, 0)
+cluster_units = example_phrases_for_soft_topics(
+    phrases.phrase.tolist(), R, n_top=8, n_sample=2, seed=0,
+)
+# Drop empty components for labelling
+cluster_units = [cu for cu in cluster_units if cu["examples"]]
 lab = runner.run(
     "labels", cluster_units, lambda cu: cu["key"],
     make_label_work(
@@ -589,7 +606,7 @@ names = {
 }
 print(names)
 cl_desc = "\\n".join(
-    f"{c}: {names[c]} — ({int((phrases.cluster == c).sum())})" for c in range(k)
+    f"{c}: {names.get(c, f'topic {c}')} — (mass {R[:, c].sum():.1f})" for c in range(k)
 )
 lens_runs = runner.run(
     "lenses", [1, 2], lambda r: str(r),
@@ -617,9 +634,10 @@ viz.embedding_scatter(
         """
 # Outlook
 
-Hard lens labels are useful but brittle. Notebook 04 turns cluster or lens
-assignments into *document-weighted* shares so long documents do not drown short
-ones. Notebook 08 softens lenses with a mixture of probabilistic PCAs.
+Soft responsibilities $R$ and topic means feed notebook 08 (soft histograms →
+document EMD; soft lenses under a separate fixed $\\sigma^2_{\\mathrm{lens}}$).
+Notebook 04 can still use MAP or lens columns for document-weighted shares; soft
+composition is the CIP-0017 default for transport.
 """
     ),
 ]
@@ -1064,15 +1082,14 @@ NOTEBOOKS["08_soft_distance.ipynb"] = [
     md(
         title_block(
             "08_soft_distance.ipynb",
-            "Soft lenses and earth mover's distance",
+            "Soft topics, soft lenses, and earth mover's distance",
             """
-Hard $k$-means plus a single lens map assigns each cluster to one framing. Soft
-Address replaces one-hot lens assignment with a mixture of probabilistic PCAs:
-each lens is a Gaussian in embedding space, all sharing isotropic noise
-$\\sigma^2$. Earth mover's distance appears twice — once when choosing
-$\\sigma^2$ across independent lens runs, and once when comparing documents as
-distributions over clusters. This notebook teaches both geometries and runs the
-multilogue APIs offline.
+Soft-throughout Address keeps phrase→topic responsibilities from a mixture of
+PPCA (notebook 03), then softens framing lenses with a second mixture of PPCAs
+over topic means. Earth mover's distance appears twice — once when choosing
+lens $\\sigma^2$ across independent LLM runs, and once when comparing documents
+as distributions over topics (preferably soft histograms). Two noise floors stay
+independent and fixed per run. This notebook teaches both geometries offline.
 """,
         )
     ),
@@ -1082,13 +1099,74 @@ multilogue APIs offline.
 
 Framing lenses — LLM labels such as economic, social, or environmental — are
 useful for interpretation but brittle if treated as hard membership.
-Responsibilities give every cluster a distribution over lenses rather than a
+Responsibilities give every *topic* a distribution over lenses rather than a
 single label. Separately, documents can be compared by transport distance on
-their cluster-share profiles without using lens names at all. Same Kantorovich
-programme; different histograms and ground costs.
+their **soft** topic-share profiles without using lens names at all. Same
+Kantorovich programme; different histograms and ground costs.
+"""
+    ),
+    md(
+        """
+## Two $\\sigma^2$ floors (CIP-0017)
+
+| Floor | Role |
+|-------|------|
+| Topic $\\sigma^2_{\\mathrm{topic}}$ | Fixed in `mppca_fit` (notebook 03) |
+| Lens $\\sigma^2_{\\mathrm{lens}}$ | Shared when scoring lens runs; $\\sigma^{2\\star}$ by EMD below, then fixed |
+
+Do not re-fit a different $\\sigma^2$ per lens replicate or per document.
 """
     ),
     code(ENSURE_POT),
+    md(
+        """
+# Soft topics → soft document histograms
+"""
+    ),
+    code(
+        """
+import numpy as np
+import pandas as pd
+from IPython.display import display
+import matplotlib.pyplot as plt
+from multilogue.mppca import mppca_fit, DEFAULT_TOPIC_SIGMA2
+from multilogue import distance as dd
+from multilogue import viz
+"""
+    ),
+    code(
+        """
+rng = np.random.default_rng(0)
+# Planted soft geometry: three subspace topics, then soft document histograms
+n_per, d, k = 40, 12, 3
+X = []
+doc_ids = []
+for j in range(k):
+    mean = np.zeros(d)
+    mean[2 * j] = 2.5
+    cov = np.eye(d) * 0.08
+    cov[2 * j, 2 * j] = 0.6
+    Xj = rng.multivariate_normal(mean, cov, size=n_per)
+    X.append(Xj)
+    # two docs per topic component
+    doc_ids += [f"d{j}a"] * (n_per // 2) + [f"d{j}b"] * (n_per - n_per // 2)
+X = np.vstack(X)
+fit = mppca_fit(X, k=k, sigma2=DEFAULT_TOPIC_SIGMA2, seed=0)
+R = fit["responsibilities"]
+P_soft, docs_soft, mass = dd.document_soft_topic_distributions(
+    doc_ids, R, min_mass=5.0,
+)
+print(f"soft docs kept: {docs_soft}; mass={mass.to_dict()}")
+print("P_soft rows sum:", P_soft.sum(axis=1))
+"""
+    ),
+    md(
+        """
+`document_soft_topic_distributions` sums phrase responsibilities per document
+and normalises — the CIP-0017 default for document EMD. The hard-count helper
+`document_cluster_distributions` remains a sensitivity view.
+"""
+    ),
     md(
         """
 # Soft lenses
@@ -1211,27 +1289,24 @@ group contrasts vanish.
     ),
     code(
         """
-import pandas as pd
 from multilogue import soft as ms
-from multilogue import viz
 """
     ),
     code(
         """
-rng = np.random.default_rng(0)
-k, dim, n_lenses, n_runs = 24, 12, 6, 3
-centroids = rng.normal(size=(k, dim))
+k_lens, dim, n_lenses, n_runs = 24, 12, 6, 3
+centroids = rng.normal(size=(k_lens, dim))
 centroids /= np.linalg.norm(centroids, axis=1, keepdims=True)
 mappings = []
 for _ in range(n_runs):
-    perm = rng.permutation(k)
+    perm = rng.permutation(k_lens)
     mappings.append({
         f"L{j}": {"cluster_ids": perm[j::n_lenses].tolist()} for j in range(n_lenses)
     })
 
 sweep = ms.sigma2_sweep_select(centroids, mappings)
 curve = pd.DataFrame(sweep["curve"])
-print(f"Selected σ²: {sweep['sigma2_best']:.4g} ({sweep['selection']})")
+print(f"Selected lens σ²*: {sweep['sigma2_best']:.4g} ({sweep['selection']})")
 print(f"Mean EMD at σ²*: {sweep['emd_best']:.4f}")
 print(f"Mean eff. support: {sweep['eff_support_best']:.2f}")
 display(curve[["sigma2", "mean_emd", "mean_eff_support"]].head(8))
@@ -1292,41 +1367,42 @@ cost and a coupling.
     ),
     code(
         """
-from multilogue import distance as dd
+# Soft-histogram document EMD (CIP-0017 path)
+prof_a = np.array([0.55, 0.35, 0.10])
+prof_b = np.array([0.10, 0.35, 0.55])
+rows_R = []
+rows_doc = []
+for i in range(8):
+    for _ in range(40):
+        rows_R.append(prof_a)
+        rows_doc.append(f"a{i}")
+    for _ in range(40):
+        rows_R.append(prof_b)
+        rows_doc.append(f"b{i}")
+R_docs = np.asarray(rows_R, float)
+# Add a little noise then renormalise so rows stay soft
+R_docs = np.clip(R_docs + rng.normal(0, 0.02, size=R_docs.shape), 1e-6, None)
+R_docs /= R_docs.sum(axis=1, keepdims=True)
+P, docs, mass = dd.document_soft_topic_distributions(rows_doc, R_docs, min_mass=20.0)
+means3 = fit["means"]
+M = dd.cosine_ground_cost(means3)
+D = dd.emd_distance_matrix(P, M)
+groups = np.array(["A" if d.startswith("a") else "B" for d in docs])
+pm = dd.permanova(D, groups, n_perm=199, seed=0)
+mds = dd.classical_mds(D, 2)
+print(f"Soft docs: {len(docs)}; PERMANOVA R²={pm['R2']:.3f}, p={pm['p_value']:.4f}")
 """
     ),
     code(
         """
-prof_a = np.array([0.4, 0.4, 0.05, 0.05, 0.05, 0.05])
-prof_b = np.array([0.05, 0.05, 0.05, 0.05, 0.4, 0.4])
-docs = {f"a{i}": prof_a for i in range(8)}
-docs.update({f"b{i}": prof_b for i in range(8)})
-rows = []
-for doc, profile in docs.items():
-    for c in rng.choice(6, size=120, p=profile):
-        rows.append({"doc_id": doc, "cluster": int(c)})
-phrases = pd.DataFrame(rows)
-group = {d: ("A" if d.startswith("a") else "B") for d in docs}
-C6 = centroids[:6]
-res = dd.run_document_distance_analysis(
-    phrases, C6, group, min_phrases=50, n_perm=199, seed=0,
-)
-pm = res["permanova"]
-print(f"Docs kept: {len(res['docs'])}; dropped: {res['dropped_docs']}")
-print(f"PERMANOVA R²={pm['R2']:.3f}, p={pm['p_value']:.4f}")
-display(res["pairwise"][["comparison", "R2", "p_value", "dispersion_p"]])
-"""
-    ),
-    code(
-        """
-coords = res["mds"]["coords"]
+coords = mds["coords"]
 fig, ax = plt.subplots(figsize=(5, 4))
 for g, marker in (("A", "o"), ("B", "s")):
-    m = res["groups"] == g
+    m = groups == g
     ax.scatter(coords[m, 0], coords[m, 1], label=g, marker=marker)
 ax.set_xlabel("MDS 1")
 ax.set_ylabel("MDS 2")
-ax.set_title("Document EMD → classical MDS")
+ax.set_title("Soft-histogram document EMD → classical MDS")
 ax.legend()
 fig.tight_layout()
 fig.savefig(FIG / "08_doc_mds.png", dpi=120)
@@ -1335,7 +1411,7 @@ plt.show()
     ),
     md(
         """
-Two planted groups with different cluster profiles separate under EMD → MDS.
+Two planted groups with different soft topic profiles separate under EMD → MDS.
 PERMANOVA tests whether group locations differ in the transport geometry —
 answering whether groups differ in *what* they raise, without using lens names.
 """
