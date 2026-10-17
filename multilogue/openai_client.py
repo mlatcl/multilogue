@@ -37,6 +37,9 @@ class OpenAIClient:
     def complete(
         self, stage: str, system: str, user: str, model: str, json_mode: bool = False
     ) -> str:
+        # Responses API: json_object format requires the word "json" in the input.
+        if json_mode and "json" not in f"{system}\n{user}".lower():
+            system = (system or "").rstrip() + "\nRespond with a JSON object."
         kw: dict[str, Any] = dict(
             model=model,
             input=[

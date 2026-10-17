@@ -26,9 +26,16 @@ required for the package itself.
 | [06_validate](notebooks/06_validate.ipynb) | κ, sheets, evidence pack |
 | [07_end_to_end](notebooks/07_end_to_end.ipynb) | Synthetic smoke experiment |
 | [08_soft_distance](notebooks/08_soft_distance.ipynb) | Soft PPCA, σ²-by-EMD, document EMD (`pot`) |
+| [09_formats_complexity](notebooks/09_formats_complexity.ipynb) | Formats-style stack; CIMT Access; optional live LLM via `.env` |
 
 Default path: **synthetic units + FakeClient** (no API key). Optional cells load public
 open data (e.g. Polis) into a local cache — never commit that cache.
+
+For a live LLM pass on notebook 09: from the **repo root** (not `notebooks/`),
+`cp .env.example .env` and set `OPENAI_API_KEY`. Install
+`pip install -e '.[openai,distance]'`. Category choices (extract kinds, lens hints,
+unit cap) are editable cells in that notebook. Checkpoints stay under gitignored
+`outputs/` (do not commit JSONL with unit text).
 
 ## Regenerating notebooks
 

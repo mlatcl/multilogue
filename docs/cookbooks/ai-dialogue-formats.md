@@ -4,6 +4,8 @@ Goal: a consumer that compares **dialogue formats** (how people were convened), 
 
 This page is a blueprint for recreating a package like [`mlatcl/ai-dialogue-formats`](https://github.com/mlatcl/ai-dialogue-formats) / `dialogue_formats`. It does **not** import that repo and uses only synthetic units.
 
+For a **runnable end-to-end** demo of the same Address stack (format labels, soft compare, format-gap ℓ), see pedagogical notebook [09 Formats complexity](https://colab.research.google.com/github/mlatcl/multilogue/blob/main/notebooks/09_formats_complexity.ipynb) (`run_formats_complexity_demo`). Access can use public CIMT dialogue vs survey; Address defaults to FakeClient, with an optional OpenAI path checkpointed under `outputs/`.
+
 ## What multilogue owns vs what you keep
 
 | Concern | Call multilogue | Keep local |

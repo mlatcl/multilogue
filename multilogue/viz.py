@@ -283,3 +283,92 @@ def multiverse_metric_strip(
     tidy(ax)
     fig.tight_layout()
     return save(fig, path, show=show)
+
+
+def sigma2_stability_curve(
+    curve: pd.DataFrame,
+    *,
+    sigma2_best: float | None = None,
+    path: str | Path | None = None,
+    show: bool = True,
+):
+    """Plot mean EMD and effective support vs σ² (log-x)."""
+    plt = _plt()
+    df = curve.sort_values("sigma2")
+    fig, ax1 = plt.subplots(figsize=(7.2, 3.4))
+    ax1.plot(df["sigma2"], df["mean_emd"], color=PALETTE[0], lw=1.8, label="mean EMD")
+    ax1.set_xscale("log")
+    ax1.set_xlabel("σ²")
+    ax1.set_ylabel("Mean pairwise EMD", color=PALETTE[0])
+    ax1.tick_params(axis="y", colors=PALETTE[0])
+    ax2 = ax1.twinx()
+    ax2.plot(
+        df["sigma2"],
+        df["mean_eff_support"],
+        color=PALETTE[1],
+        lw=1.5,
+        ls="--",
+        label="mean eff. support",
+    )
+    ax2.set_ylabel("Mean effective support", color=PALETTE[1])
+    ax2.tick_params(axis="y", colors=PALETTE[1])
+    if sigma2_best is not None:
+        ax1.axvline(sigma2_best, color=INK, lw=1.2, label=f"σ²*={sigma2_best:.3g}")
+    ax1.set_title("σ² stability sweep", loc="left", color=INK, fontsize=11)
+    tidy(ax1)
+    fig.tight_layout()
+    return save(fig, path, show=show)
+
+
+def mixture_weight_heatmap(
+    W: np.ndarray,
+    lens_names: Sequence[str],
+    *,
+    path: str | Path | None = None,
+    show: bool = True,
+):
+    """Heatmap of cluster × lens mixture weights."""
+    plt = _plt()
+    fig, ax = plt.subplots(figsize=(0.55 * max(len(lens_names), 4) + 2.5, 0.35 * W.shape[0] + 1.8))
+    im = ax.imshow(W, aspect="auto", cmap="Blues", vmin=0, vmax=1)
+    ax.set_xticks(range(len(lens_names)))
+    ax.set_xticklabels(list(lens_names), rotation=35, ha="right", fontsize=8)
+    ax.set_yticks(range(W.shape[0]))
+    ax.set_yticklabels([f"c{i}" for i in range(W.shape[0])], fontsize=8)
+    ax.set_xlabel("Lens")
+    ax.set_ylabel("Cluster")
+    ax.set_title("Soft mixture weights", loc="left", color=INK, fontsize=11)
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    return save(fig, path, show=show)
+
+
+def doc_mds_scatter(
+    coords: np.ndarray,
+    groups: Sequence[str],
+    *,
+    title: str = "Document EMD → classical MDS",
+    path: str | Path | None = None,
+    show: bool = True,
+):
+    """Scatter MDS coordinates coloured by group."""
+    plt = _plt()
+    fig, ax = plt.subplots(figsize=(5.5, 4.2))
+    groups = np.asarray(groups)
+    for i, g in enumerate(sorted(set(groups.tolist()))):
+        m = groups == g
+        ax.scatter(
+            coords[m, 0],
+            coords[m, 1],
+            label=str(g),
+            color=PALETTE[i % len(PALETTE)],
+            s=48,
+            alpha=0.85,
+        )
+    ax.set_xlabel("MDS 1")
+    ax.set_ylabel("MDS 2")
+    ax.set_title(title, loc="left", color=INK, fontsize=11)
+    ax.legend(frameon=False, fontsize=9)
+    tidy(ax)
+    fig.tight_layout()
+    return save(fig, path, show=show)
