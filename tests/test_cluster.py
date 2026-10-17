@@ -35,9 +35,22 @@ def test_frozen_assignments_roundtrip(tmp_path: Path):
     E = emb(phrases.phrase.tolist())
     labels1, C1, frozen1 = frozen_or_new_assignments(phrases, E, k=3, seed=0, checkpoint_dir=tmp_path)
     assert not frozen1
+    # Soft MPPCA checkpoints are the primary freeze artefacts
+    assert (tmp_path / "topic_responsibilities_k3.npy").exists()
+    assert (tmp_path / "topic_means_k3.npy").exists()
+    R = np.load(tmp_path / "topic_responsibilities_k3.npy")
+    assert R.shape == (20, 3)
+    assert np.allclose(R.sum(axis=1), 1.0, atol=1e-5)
     labels2, C2, frozen2 = frozen_or_new_assignments(phrases, E, k=3, seed=0, checkpoint_dir=tmp_path)
     assert frozen2
     assert np.array_equal(labels1, labels2)
+    assert np.allclose(C1, C2)
+
+    labels3, C3, frozen3, R3 = frozen_or_new_assignments(
+        phrases, E, k=3, seed=0, checkpoint_dir=tmp_path, return_soft=True
+    )
+    assert frozen3
+    assert np.allclose(R, R3)
 
 
 def test_resolve_lenses_default():

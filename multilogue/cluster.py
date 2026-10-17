@@ -1,17 +1,25 @@
-"""Embed phrases, freeze k-means assignments, blind labels, framing lenses."""
+"""Embed phrases, soft MPPCA topics, blind labels, framing lenses.
+
+CIP-0017: primary topic geometry is soft MPPCA (``multilogue.mppca``).
+Hard MAP labels are a late harden view for LLM labelling / freeze tables.
+"""
 from __future__ import annotations
 
 import json
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
 import yaml
-from sklearn.cluster import KMeans
 
+from .mppca import (
+    DEFAULT_TOPIC_SIGMA2,
+    mppca_fit,
+    responsibilities_to_labels,
+)
 from .text import get_list, parse_json, sha
 
 
@@ -67,9 +75,50 @@ class Embedder:
 
 
 def kmeans(X: np.ndarray, k: int, seed: int):
+    """Deprecated hard k-means — prefer :func:`mppca_topics`.
+
+    Kept for callers that explicitly want a hard baseline. New Address
+    paths should use MPPCA (CIP-0017).
+    """
+    from sklearn.cluster import KMeans
+
     km = KMeans(n_clusters=k, random_state=seed, n_init=10).fit(X)
     C = km.cluster_centers_ / np.linalg.norm(km.cluster_centers_, axis=1, keepdims=True)
     return km.labels_, C
+
+
+def mppca_topics(
+    X: np.ndarray,
+    k: int,
+    seed: int,
+    *,
+    sigma2: float = DEFAULT_TOPIC_SIGMA2,
+) -> dict[str, Any]:
+    """Fit soft MPPCA topics; return responsibilities, means, and MAP labels."""
+    fit = mppca_fit(X, k, sigma2=sigma2, seed=seed, n_init=10)
+    R = np.asarray(fit["responsibilities"], dtype=float)
+    means = np.asarray(fit["means"], dtype=float)
+    labels = responsibilities_to_labels(R)
+    return {
+        "responsibilities": R,
+        "means": means,
+        "labels": labels,
+        "sigma2": float(fit["sigma2"]),
+        "pi": np.asarray(fit["pi"], dtype=float),
+    }
+
+
+def _member_mean_centroids(E: np.ndarray, labels: np.ndarray, k: int) -> np.ndarray:
+    C = np.vstack(
+        [
+            E[labels == c].mean(0)
+            if np.any(labels == c)
+            else np.zeros(E.shape[1], dtype=float)
+            for c in range(k)
+        ]
+    )
+    norms = np.linalg.norm(C, axis=1, keepdims=True)
+    return C / np.clip(norms, 1e-12, None)
 
 
 def frozen_or_new_assignments(
@@ -81,11 +130,53 @@ def frozen_or_new_assignments(
     *,
     phrase_id_col: str = "phrase_id",
     replay: bool = False,
-) -> tuple[np.ndarray, np.ndarray, bool]:
-    """Load saved cluster assignments when phrase ids match; otherwise cluster and save."""
+    sigma2: float = DEFAULT_TOPIC_SIGMA2,
+    return_soft: bool = False,
+) -> tuple[np.ndarray, np.ndarray, bool] | tuple[np.ndarray, np.ndarray, bool, np.ndarray]:
+    """Fit or reload soft MPPCA topics; return MAP labels + component means.
+
+    Primary checkpoints (CIP-0017):
+      ``topic_responsibilities_k{k}.npy``, ``topic_means_k{k}.npy``,
+      ``topic_phrase_ids_k{k}.json``
+
+    Also writes MAP ``cluster_assignments_k{k}.csv`` as a harden-view /
+    freeze table. Legacy caches that only have the CSV still reload
+    (member-mean centroids from MAP labels).
+
+    Returns
+    -------
+    labels, means, frozen
+        MAP labels, L2-normalised component means μ, and whether this was
+        a freeze hit. If ``return_soft`` is True, also returns the
+        responsibility matrix ``R``.
+    """
     checkpoint_dir = Path(checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     path = checkpoint_dir / f"cluster_assignments_k{k}.csv"
+    R_path = checkpoint_dir / f"topic_responsibilities_k{k}.npy"
+    means_path = checkpoint_dir / f"topic_means_k{k}.npy"
+    ids_path = checkpoint_dir / f"topic_phrase_ids_k{k}.json"
+    phrase_ids = phrases[phrase_id_col].tolist()
+
+    def _pack(labels, means, frozen, R):
+        if return_soft:
+            return labels, means, frozen, R
+        return labels, means, frozen
+
+    # Soft freeze: phrase ids + responsibilities + means
+    if R_path.exists() and means_path.exists() and ids_path.exists():
+        saved_ids = json.loads(ids_path.read_text(encoding="utf-8"))
+        R = np.load(R_path)
+        means = np.load(means_path)
+        if (
+            list(saved_ids) == phrase_ids
+            and R.shape == (len(phrases), k)
+            and means.shape[0] == k
+        ):
+            labels = responsibilities_to_labels(R)
+            return _pack(labels, means, True, R)
+
+    # Legacy hard freeze (pre-CIP-0017 caches)
     if path.exists():
         saved = pd.read_csv(path)
         if set(saved.phrase_id) == set(phrases[phrase_id_col]) and saved.cluster.nunique() == k:
@@ -95,21 +186,33 @@ def frozen_or_new_assignments(
                 .to_numpy()
                 .astype(int)
             )
-            C = np.vstack([E[labels == c].mean(0) for c in range(k)])
-            C = C / np.linalg.norm(C, axis=1, keepdims=True)
-            return labels, C, True
+            C = _member_mean_centroids(E, labels, k)
+            # Synthetic one-hot responsibilities for soft consumers
+            R = np.zeros((len(phrases), k), dtype=float)
+            R[np.arange(len(phrases)), labels] = 1.0
+            return _pack(labels, C, True, R)
+
     if replay:
         raise RuntimeError(
-            f"replay mode: no saved cluster assignments matching these phrases ({path.name})."
+            f"replay mode: no saved topic geometry matching these phrases "
+            f"(expected {R_path.name} or {path.name})."
         )
-    labels, C = kmeans(E, k, seed)
+
+    fit = mppca_topics(E, k, seed, sigma2=sigma2)
+    labels = fit["labels"]
+    means = fit["means"]
+    R = fit["responsibilities"]
+
+    np.save(R_path, R)
+    np.save(means_path, means)
+    ids_path.write_text(json.dumps(phrase_ids), encoding="utf-8")
     pd.DataFrame({"phrase_id": phrases[phrase_id_col], "cluster": labels}).to_csv(
         path, index=False
     )
     ex_path = checkpoint_dir / f"cluster_examples_k{k}.json"
     if ex_path.exists():
         ex_path.unlink()
-    return labels, C, False
+    return _pack(labels, means, False, R)
 
 
 def example_phrases_for_clusters(
