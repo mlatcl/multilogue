@@ -34,9 +34,13 @@ def document_cluster_distributions(
     cluster_col: str = "cluster",
     min_phrases: int = 50,
 ) -> Tuple[np.ndarray, List[str], pd.Series]:
-    """Share of each document's phrases falling in each cluster.
+    """Hard-count topic histograms (sensitivity / legacy view).
 
+    Share of each document's phrases falling in each hard cluster id.
     Documents with fewer than *min_phrases* phrases are dropped.
+
+    For CIP-0017 soft-throughout consumers, prefer
+    :func:`document_soft_topic_distributions` (sum of responsibilities).
     """
     counts = (
         phrases_df.groupby([doc_col, cluster_col])
@@ -49,6 +53,62 @@ def document_cluster_distributions(
     totals = totals[totals >= min_phrases]
     P = counts.to_numpy(dtype=float) / totals.to_numpy(dtype=float)[:, None]
     return P, counts.index.tolist(), totals
+
+
+def document_soft_topic_distributions(
+    doc_ids: Sequence,
+    responsibilities: np.ndarray,
+    *,
+    min_mass: float = 50.0,
+) -> Tuple[np.ndarray, List[str], pd.Series]:
+    """Soft topic histograms by summing phrase responsibilities per document.
+
+    CIP-0017 default for consumers that sustain soft phrase→topic geometry:
+    each document's row of ``P`` is the normalised sum of its phrases'
+    responsibility rows.
+
+    Parameters
+    ----------
+    doc_ids :
+        Length-``n`` document id per phrase (aligned with ``responsibilities``).
+    responsibilities :
+        ``(n, k)`` soft topic responsibilities (rows ideally sum to 1).
+    min_mass :
+        Drop documents whose total responsibility mass (sum of their
+        phrase rows) is below this threshold — analogous to
+        ``min_phrases`` on the hard-count path.
+
+    Returns
+    -------
+    P, docs, mass
+        ``P`` is ``(n_docs, k)`` row-stochastic; ``mass`` is total soft
+        mass per kept document (same order as ``docs``).
+    """
+    R = np.asarray(responsibilities, dtype=float)
+    if R.ndim != 2:
+        raise ValueError(f"responsibilities must be 2-D, got shape {R.shape}")
+    doc_ids = list(doc_ids)
+    if len(doc_ids) != R.shape[0]:
+        raise ValueError(
+            f"doc_ids length {len(doc_ids)} != responsibilities rows {R.shape[0]}"
+        )
+    R = np.nan_to_num(R, nan=0.0, posinf=0.0, neginf=0.0)
+    k = R.shape[1]
+    df = pd.DataFrame(R, columns=[f"t{j}" for j in range(k)])
+    df["_doc"] = doc_ids
+    summed = df.groupby("_doc", sort=True)[[f"t{j}" for j in range(k)]].sum()
+    mass = summed.sum(axis=1)
+    kept = summed[mass >= min_mass]
+    mass = mass[mass >= min_mass]
+    if kept.empty:
+        return (
+            np.zeros((0, k), dtype=float),
+            [],
+            mass,
+        )
+    totals = mass.to_numpy(dtype=float)
+    P = kept.to_numpy(dtype=float) / totals[:, None]
+    return P, kept.index.tolist(), mass
 
 
 def cosine_ground_cost(centroids: np.ndarray) -> np.ndarray:

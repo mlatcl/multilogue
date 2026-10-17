@@ -1,7 +1,7 @@
 ---
 id: "2026-10-17_cip0017-soft-document-histograms"
 title: "CIP-0017: soft document topic histograms for EMD"
-status: "Ready"
+status: "Completed"
 priority: "High"
 created: "2026-10-17"
 last_updated: "2026-10-17"
@@ -26,10 +26,10 @@ Extend `multilogue.distance` so document→topic distributions can be built by *
 
 ## Acceptance Criteria
 
-- [ ] API accepts soft mass (phrases × topics + doc ids) and returns row-stochastic \(P\)
-- [ ] Hard-count path remains available under a clear name / flag
-- [ ] Existing EMD / MDS tests still pass; new soft-histogram tests added
-- [ ] Docs note soft as the CIP-0017 default for consumers that adopt soft-throughout
+- [x] API accepts soft mass (phrases × topics + doc ids) and returns row-stochastic \(P\)
+- [x] Hard-count path remains available under a clear name / flag
+- [x] Existing EMD / MDS tests still pass; new soft-histogram tests added
+- [x] Docs note soft as the CIP-0017 default for consumers that adopt soft-throughout
 
 ## Implementation Notes
 
@@ -45,3 +45,7 @@ min_phrases (or min soft mass) threshold policy: document in API — prefer tota
 ### 2026-10-17
 
 Task created (Ready).
+
+### 2026-10-17 (impl)
+
+Completed: ``document_soft_topic_distributions`` + tests + concept note.

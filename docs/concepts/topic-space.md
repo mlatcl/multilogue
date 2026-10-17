@@ -1,10 +1,10 @@
 # Shared topic space
 
-After extraction, phrases live in one embedding space and are partitioned with *k*-means.
+After extraction, phrases live in one embedding space. Legacy consumers partition with hard *k*-means. Soft-throughout consumers (CIP-0017) fit a **mixture of PPCA** ([`multilogue.mppca.mppca_fit`](../api/mppca.md)): *k*-means only initialises component means; soft responsibilities are the primary topic state. Harden to MAP labels / exemplars only at LLM or report boundaries (`responsibilities_to_labels`, `example_phrases_for_soft_topics`).
 
 ## Frozen assignments
 
-*k*-means is sensitive to initialisation and is not bit-stable across machines. When the set of `phrase_id`s is unchanged, [`frozen_or_new_assignments`](../api/cluster.md) reloads saved labels so later notebooks do not silently reshuffle topics.
+*k*-means is sensitive to initialisation and is not bit-stable across machines. When the set of `phrase_id`s is unchanged, [`frozen_or_new_assignments`](../api/cluster.md) reloads saved labels so later notebooks do not silently reshuffle topics. Soft MPPCA consumers should likewise checkpoint responsibilities (or fit params + data hash) for replay.
 
 ## Blind labels and lenses
 
