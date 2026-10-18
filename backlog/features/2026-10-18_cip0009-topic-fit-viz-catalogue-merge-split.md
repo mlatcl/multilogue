@@ -1,7 +1,7 @@
 ---
 id: "2026-10-18_cip0009-topic-fit-viz-catalogue-merge-split"
 title: "CIP-0009: Layer A topic fit viz, catalogue, merge/split (no UI)"
-status: "Ready"
+status: "Completed"
 priority: "High"
 created: "2026-10-18"
 last_updated: "2026-10-18"
@@ -39,17 +39,19 @@ be surfaced alongside; they do not auto-choose grain.
 
 ## Acceptance Criteria
 
-- [ ] Viz helper produces finite 2-D coords and responsibility-aware colouring
-- [ ] Catalogue helper is deterministic given seed / exemplars
-- [ ] Merge and split update responsibilities (or equivalent) without raising on
+- [x] Viz helper produces finite 2-D coords and responsibility-aware colouring
+- [x] Catalogue helper is deterministic given seed / exemplars
+- [x] Merge and split update responsibilities (or equivalent) without raising on
       synthetic planted mixtures; return dirty ids
-- [ ] Unit tests cover viz finiteness, catalogue stability, merge-then-split
+- [x] Unit tests cover viz finiteness, catalogue stability, merge-then-split
       recovery of separable structure
-- [ ] No `ipywidgets` import; no dependence on format-gap \(\ell\)
+- [x] No `ipywidgets` import; no dependence on format-gap \(\ell\)
 
 ## Implementation Notes
 
-- Prefer additives on `viz` / `mppca` / thin `assess` module.
+- `multilogue/subject_grain.py`: `propose_merge`, `propose_split`,
+  `topic_catalogue`, diagnostics.
+- `multilogue.viz.topic_fit_view` for the Bishop–Tipping channel.
 - LLM calls stay at StageRunner / Layer B edge only.
 - Follow-on: `2026-10-18_cip0009-ipywidgets-interaction-shell`.
 
@@ -67,3 +69,5 @@ Task created (Ready) when CIP-0009 Accepted.
 
 Clarified as **Layer A only** after interaction-shell design amendment
 (widgets moved to separate backlog task).
+
+Implemented Layer A + tests (`tests/test_subject_grain.py`).

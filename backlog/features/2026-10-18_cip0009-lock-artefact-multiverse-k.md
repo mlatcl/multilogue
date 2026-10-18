@@ -1,7 +1,7 @@
 ---
 id: "2026-10-18_cip0009-lock-artefact-multiverse-k"
 title: "CIP-0009: subject-grain lock artefact and formats multiverse k default"
-status: "Ready"
+status: "Completed"
 priority: "High"
 created: "2026-10-18"
 last_updated: "2026-10-18"
@@ -35,17 +35,19 @@ explicit `k_grid` argument (one-factor / optional path).
 
 ## Acceptance Criteria
 
-- [ ] Lock fields documented and written to run manifest (or equivalent)
-- [ ] Formats multiverse default no longer spreads \(k\) enough to dominate
+- [x] Lock fields documented and written to run manifest (or equivalent)
+- [x] Formats multiverse default no longer spreads \(k\) enough to dominate
       variance shares on the planted quote/threshold toy
-- [ ] Explicit `k_grid=` still allows a deliberate resolution sweep
-- [ ] FakeClient / offline formats path stays green
+- [x] Explicit `k_grid=` still allows a deliberate resolution sweep
+- [x] FakeClient / offline formats path stays green
 
 ## Implementation Notes
 
-- Retire or demote `_default_k_grid` in `multilogue/experiment.py`.
+- `lock_subject_grain` / `resolve_k_multiverse` in `multilogue/subject_grain.py`.
+- Formats factorial multiverse never included a silent wide \(k\) grid; default
+  still holds locked \(k\). Explicit `k_grid=` writes `resolution_k_sweep.csv`
+  (one-factor) and records levels on the lock — not factorial dims.
 - Do not pick lock \(k\) by maximising format-gap \(\ell\).
-- Coordinate with library merge/split task for history schema if needed.
 
 ## Related
 
@@ -58,3 +60,6 @@ explicit `k_grid` argument (one-factor / optional path).
 ### 2026-10-18
 
 Task created (Ready) when CIP-0009 Accepted.
+
+Implemented: lock artefact on run manifest; optional `k_grid` one-factor sweep;
+tests in `tests/test_subject_grain.py`.

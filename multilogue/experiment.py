@@ -27,6 +27,7 @@ from .llm import StageRunner
 from .multiverse import enumerate_configurations, run_multiverse, variance_decomposition
 from .report import evidence_pack, write_findings, write_manifest
 from .soft import soft_mapping_from_hard
+from .subject_grain import lock_subject_grain
 from .weight import group_compare, soft_group_compare
 
 # Preferred municipal cycling framings for CIMT-style German corpora (notebook 09).
@@ -375,6 +376,9 @@ def run_formats_complexity_demo(
     extract_user_for_unit: Any | None = None,
     label_prompt_template: str | None = None,
     lens_prompt_template: str | None = None,
+    k_grid: list[int] | None = None,
+    k_multiverse: str | list[int] | None = "hold",
+    subject_grain_lock: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Formats-style pipeline: format labels, hard+soft compare, EMD, format-gap ℓ.
 
@@ -387,6 +391,11 @@ def run_formats_complexity_demo(
     default English JSON prompts (use :data:`CYCLING_LABEL_PROMPT` /
     :data:`CYCLING_LENS_PROMPT` for German municipal framings). Lens templates
     may include ``<<K_MINUS_1>>``, replaced with ``k_eff - 1``.
+
+    Subject grain (CIP-0009): the factorial multiverse does **not** vary \(k\)
+    by default. Pass an explicit ``k_grid`` for an optional one-factor
+    resolution sweep only. ``subject_grain_lock`` (or an auto-built lock from
+    ``k`` / ``k_multiverse``) is written into the run manifest for Address.
 
     Do not commit checkpoint JSONL that contains participant text; keep under
     gitignored ``outputs/``.
@@ -655,6 +664,8 @@ def run_formats_complexity_demo(
 
     # Multiverse over *analytic decisions* reusable from this run (no new LLM calls).
     # ℓ = document-weighted format gap (group1 − group0) on the lens with largest |diff|.
+    # CIP-0009: do **not** put a wide k grid in the factorial dims by default —
+    # subject grain is locked Assess work; pass k_grid= for a one-factor sweep.
     g0, g1 = formats[0], formats[1]
     membership_levels = ["hard"] + (
         [f"soft:{r}" for r in soft_W_by_rule] if soft_W_by_rule else []
@@ -717,6 +728,53 @@ def run_formats_complexity_demo(
     shares = variance_decomposition(multi.dropna(subset=["ell_format_gap"]), "ell_format_gap", dim_cols)
     shares.to_csv(tables / "variance_shares_format_gap.csv", index=False)
 
+    # Optional one-factor resolution sweep (CIP-0009) — not part of factorial dims.
+    resolution_sweep: pd.DataFrame | None = None
+    if k_grid is not None:
+        from .cluster import mppca_topics
+
+        rows_k: list[dict[str, Any]] = []
+        for k_try in [int(x) for x in k_grid]:
+            k_try = min(k_try, max(2, len(verified) // 3))
+            if k_try < 2:
+                continue
+            try:
+                soft = mppca_topics(E, k_try, seed=seed)
+                R_k = soft["responsibilities"]
+                labels_k = soft["labels"]
+                tmp = verified.copy()
+                tmp["cluster"] = labels_k
+                # Crude grain diagnostic: treat MAP topic as the category
+                tmp["lens"] = tmp["cluster"].map(lambda c: f"topic_{int(c)}")
+                local_rng = np.random.default_rng(seed + k_try)
+                cmp_k = group_compare(
+                    tmp, "format", "lens", None, local_rng, groups=[g0, g1], reps=100
+                )
+                ell = float("nan")
+                if len(cmp_k) and "difference" in cmp_k.columns:
+                    ell = float(cmp_k.loc[cmp_k["difference"].abs().idxmax(), "difference"])
+                rows_k.append(
+                    {
+                        "k": k_try,
+                        "ell_format_gap": ell,
+                        "n_map": int(len(set(labels_k.tolist()))),
+                        "mean_max_resp": float(R_k.max(axis=1).mean()),
+                        "collapsed": bool(soft.get("collapsed", False)),
+                    }
+                )
+            except Exception as exc:
+                rows_k.append({"k": k_try, "ell_format_gap": float("nan"), "error": str(exc)})
+        resolution_sweep = pd.DataFrame(rows_k)
+        resolution_sweep.to_csv(tables / "resolution_k_sweep.csv", index=False)
+
+    grain_lock = subject_grain_lock or lock_subject_grain(
+        primary_k=k_eff,
+        means=centroids,
+        labels=labels,
+        k_multiverse=(list(k_grid) if k_grid is not None else k_multiverse),
+        extra={"source": "run_formats_complexity_demo"},
+    )
+
     evidence_pack(
         verified,
         out / "evidence_pack.html",
@@ -754,6 +812,11 @@ def run_formats_complexity_demo(
         "lens_stage_missing": lens_missing,
         "gold_argument_rows": int(len(gold_cmp)),
         "analogy": "ai-dialogue-formats Address stack on public/synthetic stand-in",
+        "subject_grain": grain_lock,
+        "multiverse_dims": list(multi_dims),
+        "resolution_k_sweep": (
+            False if resolution_sweep is None else int(len(resolution_sweep))
+        ),
     }
     write_manifest(out / "run_manifest.json", summary)
     dump_json(summary, tables / "summary.json")

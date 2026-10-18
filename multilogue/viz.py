@@ -186,6 +186,83 @@ def embedding_scatter(
     return save(fig, path, show=show)
 
 
+def topic_fit_view(
+    embeddings: np.ndarray,
+    responsibilities: np.ndarray,
+    means: np.ndarray | None = None,
+    *,
+    focus: int | None = None,
+    title: str = "Topic fit (Bishop–Tipping view)",
+    path: str | Path | None = None,
+    show: bool = True,
+):
+    """2-D latent view of a soft mixture / MPPCA fit (CIP-0009 Layer A).
+
+    Classical PCA projects phrase embeddings for inspection. Points are
+    coloured by MAP topic; alpha encodes max responsibility (or mass on
+    ``focus`` when set). Component means are overplotted when provided.
+
+    Viewing PCA is not the generative PPCA model — see :mod:`multilogue.mppca`.
+    """
+    plt = _plt()
+    from sklearn.decomposition import PCA
+
+    from .mppca import responsibilities_to_labels
+
+    X = np.asarray(embeddings, float)
+    R = np.asarray(responsibilities, float)
+    if X.ndim != 2 or len(X) < 3 or R.shape[0] != len(X):
+        return None
+    if not np.isfinite(X).all() or not np.isfinite(R).all():
+        return None
+    xy = PCA(n_components=2, random_state=0).fit_transform(X)
+    if not np.isfinite(xy).all():
+        return None
+    labels = responsibilities_to_labels(R)
+    if focus is not None:
+        alpha = np.clip(R[:, int(focus)], 0.05, 1.0)
+    else:
+        alpha = np.clip(R.max(axis=1), 0.15, 1.0)
+    fig, ax = plt.subplots(figsize=(6.5, 5))
+    for i, lab in enumerate(sorted(set(int(x) for x in labels if int(x) >= 0))):
+        m = labels == lab
+        ax.scatter(
+            xy[m, 0],
+            xy[m, 1],
+            s=28,
+            alpha=float(np.mean(alpha[m])) if m.any() else 0.5,
+            c=[PALETTE[i % len(PALETTE)]],
+            label=f"topic {lab}",
+            edgecolors="none",
+        )
+    if means is not None:
+        M = np.asarray(means, float)
+        if M.ndim == 2 and M.shape[1] == X.shape[1] and len(M) >= 1:
+            # Project means with the same PCA basis
+            pca = PCA(n_components=2, random_state=0).fit(X)
+            my = pca.transform(M)
+            if np.isfinite(my).all():
+                ax.scatter(
+                    my[:, 0],
+                    my[:, 1],
+                    s=120,
+                    marker="X",
+                    c=[PALETTE[j % len(PALETTE)] for j in range(len(M))],
+                    edgecolors=INK,
+                    linewidths=0.8,
+                    zorder=5,
+                    label="means",
+                )
+    ax.legend(frameon=False, fontsize=8, title="topic")
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
+    ax.set_title(title, loc="left", color=INK, fontsize=11)
+    tidy(ax)
+    ax.grid(color=GRID, lw=0.5)
+    fig.tight_layout()
+    return save(fig, path, show=show)
+
+
 def group_compare_dumbbell(
     compare: pd.DataFrame,
     *,
