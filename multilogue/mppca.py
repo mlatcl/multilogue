@@ -18,9 +18,11 @@ from sklearn.cluster import KMeans
 
 from .soft import log_likelihood_ppca
 
-# Default topic noise floor for L2-normalised embedding spaces.
-# Independent of lens σ²*; document changes in concept docs / CIP-0017.
-DEFAULT_TOPIC_SIGMA2: float = 0.1
+# Default topic noise floor for L2-normalised embedding spaces
+# (e.g. text-embedding-3-small). Must sit *below* typical within-topic
+# leading eigenvalues (~0.03–0.2); 0.1 left every component at q=0 and
+# collapsed EM on CIMT (CIP-0017 formats re-run). Independent of lens σ²*.
+DEFAULT_TOPIC_SIGMA2: float = 0.01
 
 
 def _l2_normalize_rows(X: np.ndarray, eps: float = 1e-12) -> np.ndarray:
@@ -156,13 +158,15 @@ def mppca_fit(
         raise ValueError(f"sigma2 must be positive, got {sigma2}")
 
     km = KMeans(n_clusters=k, random_state=seed, n_init=n_init)
-    labels = km.fit_predict(X)
+    labels_init = km.fit_predict(X)
     R = np.zeros((n, k), dtype=float)
-    R[np.arange(n), labels] = 1.0
+    R[np.arange(n), labels_init] = 1.0
     pi = R.mean(axis=0)
+    R_init = R.copy()
 
     component_fits: list[dict] = []
     n_iter = 0
+    collapsed = False
     for n_iter in range(1, max_iter + 1):
         component_fits = [
             fit_weighted_ppca(X, R[:, j], sigma2) for j in range(k)
@@ -189,6 +193,24 @@ def mppca_fit(
     if normalize_means:
         means = _l2_normalize_rows(means)
 
+    # Guard: isotropic collapse (all q=0 + means coincide) leaves one MAP topic.
+    # Fall back to k-means init hard responsibilities + member means.
+    map_sizes = np.bincount(np.argmax(R, axis=1), minlength=k)
+    if normalize_means and k >= 2:
+        cos = means @ means.T
+        np.fill_diagonal(cos, 0.0)
+        max_mean_cos = float(cos.max()) if cos.size else 0.0
+    else:
+        max_mean_cos = 0.0
+    if int((map_sizes > 0).sum()) <= 1 or max_mean_cos > 0.999:
+        collapsed = True
+        R = R_init
+        pi = R.mean(axis=0)
+        component_fits = [fit_weighted_ppca(X, R[:, j], sigma2) for j in range(k)]
+        means = np.vstack([fit["mu"] for fit in component_fits])
+        if normalize_means:
+            means = _l2_normalize_rows(means)
+
     return {
         "responsibilities": R,
         "means": means,
@@ -198,6 +220,7 @@ def mppca_fit(
         "component_fits": component_fits,
         "seed": int(seed),
         "k": int(k),
+        "collapsed": collapsed,
     }
 
 
