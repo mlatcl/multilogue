@@ -1719,12 +1719,13 @@ Public-dialogue studies often ask whether *how* people are convened changes
 does not hard-code “format”; it supplies the Address machinery with a group
 column and a consumer metric $\\ell$. This notebook teaches that pattern: Access
 on a public format pair; a paper-aligned gold $\\ell$ (major position vs premise
-by format); **Assess** that locks subject grain before spend; then Address that
-prefers a cached CIMT LLM run at locked $k{=}10$ with German municipal cycling
-lenses (resuming via StageRunner when an API key is present). Offline Address
-uses `phrases_from_units` on the same CIMT units (FakeClient only when no key /
-``MULTILOGUE_FORCE_FAKE``). Multiverse holds $k$ (or $\\pm 1$) by default — not a
-wide resolution grid.
+by format); **Assess** that grows subject grain from $k{=}1$ (Bishop–Tipping
+split / merge) and **locks** before spend; then Address that prefers a cached
+CIMT LLM run at that locked $k$ with German municipal cycling lenses
+(resuming via StageRunner when an API key is present). Offline Address uses
+`phrases_from_units` on the same CIMT units (FakeClient only when no key /
+``MULTILOGUE_FORCE_FAKE``). Multiverse holds locked $k$ (or $\\pm 1$) by default
+— not a wide resolution grid.
 """,
         )
     ),
@@ -1747,11 +1748,12 @@ numbers and titles so you can jump from the diagram to the matching cell.
         """
 ## Analysis flow
 
-Eight numbered stages. **Assess** covers text diagnostics (CIP-0008) and locks
-subject grain (Bishop–Tipping dual view) before **Address** spends on lenses /
-$\\ell$. Address expands into the soft-throughout pipeline that `StageRunner`
-resumes from disk (extract → embed → MPPCA topics → labels/lenses → soft compare
-/ EMD → multiverse $\\ell$ with $k$ **held** or $\\pm 1$ only).
+Eight numbered stages. **Assess** covers text diagnostics (CIP-0008) and
+interactive subject grain from $k{=}1$ (Bishop–Tipping dual view) before
+**Address** spends on lenses / $\\ell$. Address expands into the soft-throughout
+pipeline that `StageRunner` resumes from disk (extract → embed → MPPCA topics →
+labels/lenses → soft compare / EMD → multiverse $\\ell$ with **locked** $k$ held
+or $\\pm 1$ only).
 
 ```mermaid
 flowchart TD
@@ -1785,8 +1787,8 @@ flowchart TD
 | 2 | Access — public format pair | CIMT dialogue vs survey |
 | 3 | Assess — text diagnostics | Lengths / characters (CIP-0008); stop if debris dominates |
 | 4 | Gold $\\ell$ — mpos vs premise by format | Paper-aligned argument codes; no LLM |
-| 5 | Assess — interactive subject grain | Bishop–Tipping dual view; lock $k$ before Address |
-| 6 | Address — soft-throughout pipeline | Cache / live / phrases_from_units; StageRunner stages |
+| 5 | Assess — interactive subject grain | Embed units-as-phrases; $k{=}1$ → split/merge; lock before Address |
+| 6 | Address — soft-throughout pipeline | Cache / live / phrases_from_units at **locked** $k$ |
 | 7 | Reading the run | Catalogue, top concerns, findings markdown |
 | 8 | Outlook | What stays in a consumer formats package |
 """
@@ -1914,40 +1916,83 @@ below is a separate question — first **Assess** the subject grain, then Addres
 
 Subject count $k$ defines how many topics the analysis admits. Putting a wide
 $k$ grid in the factorial multiverse swamps quote / kind / membership and
-answers the wrong stability question. CIP-0009 treats grain as **Assess EDA
-with a human in the loop** (Bishop–Tipping geometry + LLM catalogues); only
-after a **lock** does Address proceed.
+answers the wrong stability question. CIP-0009 / CIP-000A treat grain as
+**Assess EDA with a human in the loop** (Bishop–Tipping geometry + LLM
+catalogues): start at **one soft bag** ($k{=}1$), grow by **Propose split**,
+and **lock** before Address spend. Do not re-fit $k$ to maximise format-gap
+$\\ell$.
 
-Notebook 03 teaches the dual-view shell on CIMT phrases. Here we record
-the lock policy for this formats run and keep the offline path
-scripted (no widgets required). **Lock grain before Address spend** — do not
-re-fit $k$ to maximise format-gap $\\ell$.
+The cell below embeds the Access units-as-phrases, opens the same shell as
+notebook 03, and writes `subject_grain_lock.json`. Widgets when available;
+otherwise a scripted split → accept → lock path (CI / smoke).
 """
     ),
+    code(RESOLVE_CLIENT),
     code(
         """
 import os
 from pathlib import Path
-from multilogue.subject_grain import lock_subject_grain
+import numpy as np
+from IPython.display import display
+from multilogue.cluster import Embedder
+from multilogue.mppca import DEFAULT_TOPIC_SIGMA2
+from multilogue.subject_grain import initial_assess_fit
+from multilogue.subject_grain_shell import SubjectGrainShell, ipywidgets_available
 
-# Formats Address default: hold locked primary k (CIP-0009). Optional pm1
-# via resolve_k_multiverse(10, "pm1") → [9, 10, 11]. Wide grids only via
-# explicit k_grid= on run_formats_complexity_demo (one-factor sweep).
-PRIMARY_K = 10
-grain_lock = lock_subject_grain(
-    primary_k=PRIMARY_K,
-    k_multiverse="hold",
-    extra={
-        "note": "Assess lock before Address; dual-view merge/split lives in notebook 03",
-        "lock_before_spend": True,
-    },
+# Embed Access phrases for Assess geometry (same objects Address may reuse).
+ph = offline_phrases.copy()
+if "phrase" not in ph.columns:
+    ph = ph.rename(columns={ph.columns[0]: "phrase"})
+embedder = Embedder(root / "emb_assess", client, model=models["embed"])
+E_assess = np.asarray(embedder(ph["phrase"].astype(str).tolist()), float)
+grain_fit = initial_assess_fit(
+    E_assess, k=1, sigma2_mode="fixed", sigma2=DEFAULT_TOPIC_SIGMA2, seed=0
+)
+shell = SubjectGrainShell(
+    E_assess,
+    grain_fit,
+    ph,
+    phrase_col="phrase",
+    seed=0,
+    label_client=client,
+    label_system=TOPIC_LABEL_SYSTEM,
+    label_prompt=TOPIC_LABEL_PROMPT,
+    label_model=models["label"],
+    name_initial=False,  # cheap for FakeClient smoke; widgets can Name catalogue
+    sigma2_mode="fixed",
+)
+print(
+    f"Assess entry k={shell.k}, σ²={shell.fit['sigma2']:.4g} "
+    f"(mode={shell.sigma2_mode})"
+)
+use_widgets = (
+    ipywidgets_available()
+    and os.environ.get("MULTILOGUE_SUBJECT_GRAIN_WIDGETS", "1") != "0"
 )
 lock_dir = Path("outputs/notebook_formats_complexity")
 lock_dir.mkdir(parents=True, exist_ok=True)
-from multilogue.config import dump_json
-dump_json(grain_lock, lock_dir / "subject_grain_lock.json")
+if use_widgets:
+    print(
+        "Layer B widgets: explore split/merge here; the scripted lock below "
+        "also writes LOCKED_K for Address. Re-Lock from the widget and "
+        "re-run Address if you change grain further."
+    )
+    shell.display()
+else:
+    print("Layer A scripted path (no widgets / MULTILOGUE_SUBJECT_GRAIN_WIDGETS=0)")
+    display(shell.catalogue())
+# Always produce a lock for Address (CIP-000A: grow from k=1, never a fixed k).
+if shell.k == 1:
+    shell.split(0, name_children=False)
+    shell.accept_proposal()
+    print("scripted split+accept → k =", shell.k)
+grain_lock = shell.lock(
+    path=lock_dir / "subject_grain_lock.json",
+    k_multiverse="hold",
+)
+LOCKED_K = int(grain_lock["primary_k"])
 print("subject-grain lock →", lock_dir / "subject_grain_lock.json")
-print("primary_k =", grain_lock["primary_k"], "k_multiverse =", grain_lock["k_multiverse"])
+print("LOCKED_K =", LOCKED_K, "k_multiverse =", grain_lock["k_multiverse"])
 display(grain_lock)
 """
     ),
@@ -1956,21 +2001,20 @@ display(grain_lock)
 ## 6. Address — soft-throughout pipeline
 
 StageRunner checkpoints under `outputs/formats_cimt_llm/` mean a prior CIMT LLM
-run can be reused without paying again. Internally this is stages **5a–5e** on
+run can be reused without paying again. Internally this is stages **6a–6e** on
 the flowchart (extract → embed → MPPCA + topic $\\sigma^2$ profile → labels/lenses
-→ soft compare / EMD / multiverse $\\ell$ with **$k$ held**). The next cell
-therefore:
+→ soft compare / EMD / multiverse $\\ell$ with **locked $k$ held**). The next
+cell therefore:
 
 1. loads `.env` if present;
-2. if `OPENAI_API_KEY` is set — *resume or recache* the live
-   demo at the **locked** $k{=}10$ with **German labels** and a fixed municipal
-   cycling lens vocabulary (paths, parking, surface, junctions/tram,
-   access/Rhein, mixed traffic). Completed extract/embed fingerprints are
-   reused; new prompts re-run cluster labels and lenses — do not sweep a wide
-   $k$ grid here;
-3. else if a complete cached run is already on disk — use those tables;
+2. if `OPENAI_API_KEY` is set — *resume or recache* the live demo at the
+   **Assess-locked** $k$ with **German labels** and a fixed municipal cycling
+   lens vocabulary. Completed extract/embed fingerprints are reused; new
+   prompts re-run cluster labels and lenses — do not sweep a wide $k$ grid;
+3. else if a complete cached run is already on disk **and** its $k$ matches
+   the Assess lock — use those tables;
 4. else run offline Address on the same CIMT units via `phrases_from_units`
-   (OpenAI from ``.env`` when available; FakeClient offline — no synthetic civic text).
+   at the locked $k$ (OpenAI from ``.env`` when available; FakeClient offline).
 """
     ),
     code(
@@ -1996,6 +2040,7 @@ from multilogue.report import (
         """
 load_dotenv(Path.cwd() / ".env")
 load_dotenv(Path.cwd().parent / ".env")
+LOCKED_K = int(grain_lock["primary_k"])
 # Prefer repo-root outputs when the notebook cwd is notebooks/.
 for _root in (Path.cwd(), Path.cwd().parent):
     _cand = _root / "outputs" / "formats_cimt_llm"
@@ -2019,7 +2064,7 @@ if key:
     ]
     print(
         f"Live / resume CIMT Address → {LLM_OUT} "
-        f"(locked k={PRIMARY_K}, German cycling lenses; {len(units_live)} units)"
+        f"(Assess-locked k={LOCKED_K}, German cycling lenses; {len(units_live)} units)"
     )
     summary = run_formats_complexity_demo(
         LLM_OUT,
@@ -2029,7 +2074,7 @@ if key:
         extract_model="gpt-4.1-mini",
         embed_model="text-embedding-3-small",
         label_model="gpt-4.1-mini",
-        k=PRIMARY_K, lens_runs=3, quiet=True, max_workers=4,
+        k=LOCKED_K, lens_runs=3, quiet=True, max_workers=4,
         label_prompt_template=CYCLING_LABEL_PROMPT,
         lens_prompt_template=CYCLING_LENS_PROMPT,
         k_multiverse="hold",
@@ -2038,28 +2083,34 @@ if key:
     tables = CACHE_TABLES
     address_source = "cimt_llm"
 elif cache_ready:
-    print(f"Using cached CIMT Address tables → {CACHE_TABLES.resolve()}")
-    tables = CACHE_TABLES
-    address_source = "cimt_cache"
     man = LLM_OUT / "run_manifest.json"
+    cache_k = None
     if man.is_file():
         summary = json.loads(man.read_text())
-        display(summary)
-        if summary.get("k", 0) < 10:
-            print(
-                "Note: cache used k =", summary.get("k"),
-                "— re-run with OPENAI_API_KEY to refresh at k=10 + German lenses.",
-            )
-else:
+        cache_k = summary.get("k")
+    if cache_k is not None and int(cache_k) != LOCKED_K:
+        print(
+            f"Cache k={cache_k} ≠ Assess-locked k={LOCKED_K}; "
+            "ignoring cache and running offline phrases_from_units."
+        )
+        cache_ready = False
+    else:
+        print(f"Using cached CIMT Address tables → {CACHE_TABLES.resolve()} (k={cache_k})")
+        tables = CACHE_TABLES
+        address_source = "cimt_cache"
+        if summary is not None:
+            display(summary)
+
+if not key and not cache_ready:
     out = Path("outputs/notebook_formats_complexity")
     print(
-        "No CIMT cache and no API key — offline phrases_from_units →", out
+        f"Offline phrases_from_units at Assess-locked k={LOCKED_K} →", out
     )
     summary = run_formats_complexity_demo(
         out,
         units=access_units,
         phrases=offline_phrases,
-        k=PRIMARY_K,
+        k=LOCKED_K,
         lens_runs=3,
         quiet=True,
         k_multiverse="hold",
@@ -2168,7 +2219,7 @@ display(Markdown(md_text))
 Multilogue owns the shared stages above. A formats-style consumer package still
 keeps: PDF/docx Access, study prompts and experience coding, researcher-edited
 lens YAML, and the precise definition of headline $\\ell$. Subject grain is
-locked in Assess (notebook 03 dual-view shell; this notebook's lock artefact)
+locked in Assess (this notebook's interactive / scripted shell from $k{=}1$)
 before Address spend. See the formats cookbook and the soft / EMD concepts page
 in the documentation.
 """
