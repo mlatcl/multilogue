@@ -59,6 +59,26 @@ def test_fit_weighted_ppca_matches_unweighted_mean():
     np.testing.assert_allclose(fit["mu"], X.mean(axis=0), rtol=1e-10)
 
 
+def test_fit_weighted_ppca_survives_svd_failure(monkeypatch):
+    """Ill-conditioned weighted SVD must not raise (CIP-0008)."""
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(30, 8))
+    w = np.ones(30)
+    calls = {"n": 0}
+
+    def boom(*_a, **_k):
+        calls["n"] += 1
+        raise np.linalg.LinAlgError("SVD did not converge")
+
+    monkeypatch.setattr(np.linalg, "svd", boom)
+    fit = fit_weighted_ppca(X, w, sigma2=0.1)
+    assert fit["q"] == 0
+    assert fit["U_q"].shape == (8, 0)
+    assert calls["n"] >= 1
+    out = mppca_fit(X, k=3, sigma2=0.1, seed=0, max_iter=5, n_init=2)
+    assert out["responsibilities"].shape == (30, 3)
+
+
 def test_mppca_responsibilities_row_stochastic():
     X, _ = _planted_subspace_mixture(seed=2)
     out = mppca_fit(X, k=3, sigma2=0.1, seed=2, max_iter=30)
