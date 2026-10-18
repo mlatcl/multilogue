@@ -121,6 +121,32 @@ def _member_mean_centroids(E: np.ndarray, labels: np.ndarray, k: int) -> np.ndar
     return C / np.clip(norms, 1e-12, None)
 
 
+def _load_soft_topic_checkpoint(
+    phrases: pd.DataFrame,
+    k: int,
+    checkpoint_dir: Path,
+    phrase_id_col: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """Load soft MPPCA checkpoints if phrase ids and shapes match; else None."""
+    R_path = checkpoint_dir / f"topic_responsibilities_k{k}.npy"
+    means_path = checkpoint_dir / f"topic_means_k{k}.npy"
+    ids_path = checkpoint_dir / f"topic_phrase_ids_k{k}.json"
+    if not (R_path.exists() and means_path.exists() and ids_path.exists()):
+        return None
+    saved_ids = json.loads(ids_path.read_text(encoding="utf-8"))
+    phrase_ids = phrases[phrase_id_col].tolist()
+    R = np.load(R_path)
+    means = np.load(means_path)
+    if not (
+        list(saved_ids) == phrase_ids
+        and R.shape == (len(phrases), k)
+        and means.shape[0] == k
+    ):
+        return None
+    labels = responsibilities_to_labels(R)
+    return labels, means, R
+
+
 def frozen_or_new_assignments(
     phrases: pd.DataFrame,
     E: np.ndarray,
@@ -130,25 +156,28 @@ def frozen_or_new_assignments(
     *,
     phrase_id_col: str = "phrase_id",
     replay: bool = False,
+    freeze: bool = False,
     sigma2: float = DEFAULT_TOPIC_SIGMA2,
     return_soft: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, bool] | tuple[np.ndarray, np.ndarray, bool, np.ndarray]:
-    """Fit or reload soft MPPCA topics; return MAP labels + component means.
+    """Fit soft MPPCA topics (default) or explicitly reload a soft checkpoint.
 
-    Primary checkpoints (CIP-0017):
-      ``topic_responsibilities_k{k}.npy``, ``topic_means_k{k}.npy``,
-      ``topic_phrase_ids_k{k}.json``
+    **Default (``freeze=False``):** always run ``mppca_fit`` and overwrite
+    soft checkpoints. Hard ``cluster_assignments_k*.csv`` files are never
+    used as topic geometry — that silent hard freeze is what kept formats
+    on stale k-means after CIP-0017.
 
-    Also writes MAP ``cluster_assignments_k{k}.csv`` as a harden-view /
-    freeze table. Legacy caches that only have the CSV still reload
-    (member-mean centroids from MAP labels).
+    **``freeze=True`` / ``replay=True``:** load soft
+    ``topic_responsibilities_k{k}.npy`` + means when phrase ids match.
+    ``replay=True`` raises if no soft checkpoint matches. Legacy hard-only
+    CSVs are ignored.
 
     Returns
     -------
     labels, means, frozen
         MAP labels, L2-normalised component means μ, and whether this was
-        a freeze hit. If ``return_soft`` is True, also returns the
-        responsibility matrix ``R``.
+        an explicit freeze hit. If ``return_soft`` is True, also returns
+        the responsibility matrix ``R``.
     """
     checkpoint_dir = Path(checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -163,40 +192,19 @@ def frozen_or_new_assignments(
             return labels, means, frozen, R
         return labels, means, frozen
 
-    # Soft freeze: phrase ids + responsibilities + means
-    if R_path.exists() and means_path.exists() and ids_path.exists():
-        saved_ids = json.loads(ids_path.read_text(encoding="utf-8"))
-        R = np.load(R_path)
-        means = np.load(means_path)
-        if (
-            list(saved_ids) == phrase_ids
-            and R.shape == (len(phrases), k)
-            and means.shape[0] == k
-        ):
-            labels = responsibilities_to_labels(R)
+    want_freeze = freeze or replay
+    if want_freeze:
+        loaded = _load_soft_topic_checkpoint(phrases, k, checkpoint_dir, phrase_id_col)
+        if loaded is not None:
+            labels, means, R = loaded
             return _pack(labels, means, True, R)
-
-    # Legacy hard freeze (pre-CIP-0017 caches)
-    if path.exists():
-        saved = pd.read_csv(path)
-        if set(saved.phrase_id) == set(phrases[phrase_id_col]) and saved.cluster.nunique() == k:
-            labels = (
-                phrases[phrase_id_col]
-                .map(dict(zip(saved.phrase_id, saved.cluster)))
-                .to_numpy()
-                .astype(int)
+        if replay:
+            raise RuntimeError(
+                f"replay mode: no soft topic checkpoint matching these phrases "
+                f"(expected {R_path.name}, {means_path.name}, {ids_path.name}). "
+                f"Hard cluster_assignments CSVs are not used for topic geometry."
             )
-            C = _member_mean_centroids(E, labels, k)
-            # Synthetic one-hot responsibilities for soft consumers
-            R = np.zeros((len(phrases), k), dtype=float)
-            R[np.arange(len(phrases)), labels] = 1.0
-            return _pack(labels, C, True, R)
-
-    if replay:
-        raise RuntimeError(
-            f"replay mode: no saved topic geometry matching these phrases "
-            f"(expected {R_path.name} or {path.name})."
-        )
+        # freeze=True but nothing soft to load → fall through and fit
 
     fit = mppca_topics(E, k, seed, sigma2=sigma2)
     labels = fit["labels"]

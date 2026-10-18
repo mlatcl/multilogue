@@ -13,7 +13,7 @@ For a **runnable end-to-end** demo of the same Address stack (format labels, sof
 | Quote gate, hashing, JSON parse | `multilogue.text` | — |
 | Stage runner / replay | `multilogue.llm.StageRunner` | OpenAI wiring if custom |
 | Extract parse / yield | `multilogue.extract` | Format-specific `TYPES`, prompt renderers |
-| Embed + frozen k-means + lenses | `multilogue.cluster` | Columns that name formats on tables |
+| Embed + soft MPPCA topics + lenses | `multilogue.cluster` | Columns that name formats on tables |
 | Doc weights, JSD, κ | `multilogue.weight` | Format-named wrappers |
 | Multiverse grid | `multilogue.multiverse` | Experience-gap ℓ configs |
 | Blind sheets / evidence pack | `multilogue.validate`, `report` | Grounds, own-words lists, confidentiality |
