@@ -117,3 +117,40 @@ def test_mppca_rejects_bad_sigma2():
     X = rng.normal(size=(12, 4))
     with pytest.raises(ValueError, match="sigma2"):
         mppca_fit(X, k=2, sigma2=0.0, seed=0)
+
+
+def _unit_sphere_topics(*, n_per: int = 20, d: int = 64, k: int = 5, seed: int = 0):
+    """L2-normalised clusters mimicking embedding geometry."""
+    rng = np.random.default_rng(seed)
+    centres = rng.normal(size=(k, d))
+    centres /= np.linalg.norm(centres, axis=1, keepdims=True)
+    Xs = []
+    for j in range(k):
+        noise = rng.normal(scale=0.08, size=(n_per, d))
+        Xj = centres[j] + noise
+        Xj /= np.linalg.norm(Xj, axis=1, keepdims=True)
+        Xs.append(Xj)
+    X = np.vstack(Xs)
+    return X[rng.permutation(len(X))]
+
+
+def test_default_sigma2_keeps_multiple_map_topics_on_sphere():
+    """DEFAULT_TOPIC_SIGMA2 must not collapse MAP to one topic on unit sphere."""
+    X = _unit_sphere_topics(seed=11)
+    out = mppca_fit(X, k=5, seed=11, max_iter=40)  # uses DEFAULT
+    labels = responsibilities_to_labels(out["responsibilities"])
+    n_nonempty = int(np.bincount(labels, minlength=5).astype(bool).sum())
+    assert n_nonempty >= 4
+    assert out["sigma2"] == pytest.approx(DEFAULT_TOPIC_SIGMA2)
+
+
+def test_high_sigma2_collapse_falls_back_to_kmeans_init():
+    """When σ² is far above local eigenvalues, recover k-means init (not 1 MAP)."""
+    X = _unit_sphere_topics(seed=12, n_per=25, k=6)
+    out = mppca_fit(X, k=6, sigma2=1.0, seed=12, max_iter=40)
+    assert out.get("collapsed") is True
+    labels = responsibilities_to_labels(out["responsibilities"])
+    n_nonempty = int(np.bincount(labels, minlength=6).astype(bool).sum())
+    assert n_nonempty >= 5
+    # Hard init responsibilities are one-hot
+    assert np.allclose(out["responsibilities"].max(axis=1), 1.0)
