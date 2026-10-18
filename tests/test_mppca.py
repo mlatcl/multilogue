@@ -5,8 +5,10 @@ import pytest
 
 from multilogue.mppca import (
     DEFAULT_TOPIC_SIGMA2,
+    DEFAULT_TOPIC_SIGMA2_GRID,
     fit_weighted_ppca,
     mppca_fit,
+    profile_topic_sigma2,
     responsibilities_to_labels,
 )
 
@@ -154,3 +156,31 @@ def test_high_sigma2_collapse_falls_back_to_kmeans_init():
     assert n_nonempty >= 5
     # Hard init responsibilities are one-hot
     assert np.allclose(out["responsibilities"].max(axis=1), 1.0)
+
+
+def test_profile_topic_sigma2_avoids_collapse_and_prefers_soft():
+    """Profile grid must reject collapsing floors and pick a soft viable σ²."""
+    X = _unit_sphere_topics(seed=13, n_per=30, k=5, d=48)
+    # Grid includes a known-collapsing high value and safer lower ones
+    grid = [1e-3, 1e-2, 5e-2, 1.0]
+    prof = profile_topic_sigma2(X, k=5, grid=grid, seed=13, max_iter=30)
+    assert prof["selection"] == "softest_noncollapse"
+    assert prof["sigma2"] < 1.0
+    assert len(prof["curve"]) == len(grid)
+    # Chosen fit must keep multiple MAP topics
+    labels = responsibilities_to_labels(prof["fit"]["responsibilities"])
+    assert int(np.bincount(labels, minlength=5).astype(bool).sum()) >= 3
+    # And the chosen σ² should be the largest non-collapsing on the curve
+    viable = [
+        float(d["sigma2"])
+        for d in prof["curve"]
+        if (not d["collapsed"]) and int(d["n_map"]) >= 3 and float(d["max_mean_cos"]) <= 0.99
+    ]
+    assert prof["sigma2"] == max(viable)
+
+
+def test_default_grid_nonempty():
+    assert len(DEFAULT_TOPIC_SIGMA2_GRID) >= 5
+    assert min(DEFAULT_TOPIC_SIGMA2_GRID) < DEFAULT_TOPIC_SIGMA2 < max(
+        DEFAULT_TOPIC_SIGMA2_GRID
+    )

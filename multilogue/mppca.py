@@ -11,18 +11,32 @@ PPCA factor truncation matches :func:`multilogue.soft.fit_lens_ppca`
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import numpy as np
 from sklearn.cluster import KMeans
 
 from .soft import log_likelihood_ppca
 
-# Default topic noise floor for L2-normalised embedding spaces
-# (e.g. text-embedding-3-small). Must sit *below* typical within-topic
-# leading eigenvalues (~0.03–0.2); 0.1 left every component at q=0 and
-# collapsed EM on CIMT (CIP-0017 formats re-run). Independent of lens σ²*.
+# Fallback single-value floor if profiling is skipped. Prefer
+# :func:`profile_topic_sigma2` (CIP-0017: short profile grid, then fix).
+# Independent of lens σ²*.
 DEFAULT_TOPIC_SIGMA2: float = 0.01
+
+# Log-spaced candidate floors for one-shot topic σ² profiling.
+# Softest non-collapsing value on this grid is selected.
+DEFAULT_TOPIC_SIGMA2_GRID: tuple[float, ...] = (
+    1e-4,
+    3e-4,
+    1e-3,
+    3e-3,
+    1e-2,
+    3e-2,
+    5e-2,
+    1e-1,
+    3e-1,
+    1.0,
+)
 
 
 def _l2_normalize_rows(X: np.ndarray, eps: float = 1e-12) -> np.ndarray:
@@ -221,6 +235,111 @@ def mppca_fit(
         "seed": int(seed),
         "k": int(k),
         "collapsed": collapsed,
+    }
+
+
+def topic_fit_diagnostics(fit: dict[str, Any]) -> dict[str, float | int | bool]:
+    """Summarise whether an MPPCA fit separated topics or collapsed."""
+    R = np.asarray(fit["responsibilities"], dtype=float)
+    means = np.asarray(fit["means"], dtype=float)
+    k = int(fit.get("k", R.shape[1]))
+    labels = np.argmax(R, axis=1)
+    map_sizes = np.bincount(labels, minlength=k)
+    n_map = int((map_sizes > 0).sum())
+    if means.shape[0] >= 2:
+        cos = means @ means.T
+        np.fill_diagonal(cos, 0.0)
+        max_mean_cos = float(cos.max()) if cos.size else 0.0
+    else:
+        max_mean_cos = 0.0
+    # Shannon entropy of each responsibility row
+    eps = 1e-12
+    ent = -(R * np.log(R + eps)).sum(axis=1)
+    q_vals = [int(f.get("q", 0)) for f in fit.get("component_fits", [])]
+    collapsed = bool(fit.get("collapsed", False)) or n_map <= 1 or max_mean_cos > 0.999
+    return {
+        "n_map": n_map,
+        "max_mean_cos": max_mean_cos,
+        "mean_max_resp": float(R.max(axis=1).mean()),
+        "mean_entropy": float(ent.mean()),
+        "mean_q": float(np.mean(q_vals)) if q_vals else 0.0,
+        "collapsed": collapsed,
+        "sigma2": float(fit["sigma2"]),
+    }
+
+
+def profile_topic_sigma2(
+    X: np.ndarray,
+    k: int,
+    *,
+    grid: Optional[Sequence[float]] = None,
+    seed: int = 0,
+    max_iter: int = 50,
+    tol: float = 1e-5,
+    n_init: int = 10,
+    normalize_means: bool = True,
+    min_map_fraction: float = 0.5,
+) -> dict[str, Any]:
+    r"""Sweep topic σ² and pick the softest floor that does not collapse.
+
+    CIP-0017: topic σ² is profiled once per analysis config, then held fixed
+    (independent of lens σ²*). Among grid values whose fit keeps enough MAP
+    topics and separated means, choose the **largest** σ² (softest / fewest
+    factors) — that is the collapse-avoiding analogue of the lens σ²* band.
+
+    Returns
+    -------
+    dict with ``sigma2``, ``fit`` (full :func:`mppca_fit` at the choice),
+    ``curve`` (list of diagnostics per grid point), ``selection``.
+    """
+    grid_vals = list(grid) if grid is not None else list(DEFAULT_TOPIC_SIGMA2_GRID)
+    if not grid_vals:
+        raise ValueError("topic σ² grid must be non-empty")
+    min_map = max(2, int(np.ceil(min_map_fraction * k)))
+
+    curve: list[dict[str, float | int | bool]] = []
+    fits: dict[float, dict[str, Any]] = {}
+    for s2 in sorted(float(s) for s in grid_vals):
+        fit = mppca_fit(
+            X,
+            k,
+            sigma2=s2,
+            seed=seed,
+            max_iter=max_iter,
+            tol=tol,
+            n_init=n_init,
+            normalize_means=normalize_means,
+        )
+        diag = topic_fit_diagnostics(fit)
+        curve.append(diag)
+        fits[s2] = fit
+
+    viable = [
+        d
+        for d in curve
+        if (not d["collapsed"])
+        and int(d["n_map"]) >= min_map
+        and float(d["max_mean_cos"]) <= 0.99
+    ]
+    if viable:
+        # Softest non-collapsing: largest σ²
+        best = max(viable, key=lambda d: float(d["sigma2"]))
+        selection = "softest_noncollapse"
+    else:
+        # Least-bad: most MAP topics, then lowest mean cosine
+        best = max(
+            curve,
+            key=lambda d: (int(d["n_map"]), -float(d["max_mean_cos"])),
+        )
+        selection = "fallback_least_collapsed"
+
+    s2_star = float(best["sigma2"])
+    return {
+        "sigma2": s2_star,
+        "fit": fits[s2_star],
+        "curve": curve,
+        "selection": selection,
+        "min_map": min_map,
     }
 
 
