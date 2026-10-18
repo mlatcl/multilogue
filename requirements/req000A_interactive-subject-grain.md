@@ -1,7 +1,7 @@
 ---
 id: "000A"
 title: "Analysts can interactively set subject grain before Address locks topics"
-status: "In Progress"
+status: "Implemented"
 priority: "High"
 created: "2026-10-18"
 last_updated: "2026-10-18"
@@ -48,21 +48,21 @@ needs a defensible topic catalogue before claiming stability of \(\ell\).
 
 ## Acceptance Criteria
 
-- [ ] Analysts can view a **latent visualisation of the current soft fit**
+- [x] Analysts can view a **latent visualisation of the current soft fit**
       (updating after fit / merge / split) without committing to a research-question
       metric
-- [ ] Analysts can view a soft-topic **LLM catalogue** (exemplars + summary) for
+- [x] Analysts can view a soft-topic **LLM catalogue** (exemplars + summary) for
       the same bags
-- [ ] Analysts can request **merge** and **split** of topics and see updated
+- [x] Analysts can request **merge** and **split** of topics and see updated
       geometry immediately; LLM catalogues refresh for affected bags without
       requiring a full re-run of Address
-- [ ] Live exploration supports undo and an explicit lock action (notebook shell
+- [x] Live exploration supports undo and an explicit lock action (notebook shell
       or equivalent); labelling of changed topics is on demand, not forced on
       every structural click
-- [ ] A locked subject grain is an explicit artefact handed to Address
-- [ ] Formats (or equivalent) multiverse does not let a wide \(k\) grid dominate
+- [x] A locked subject grain is an explicit artefact handed to Address
+- [x] Formats (or equivalent) multiverse does not let a wide \(k\) grid dominate
       variance shares by default
-- [ ] Offline / FakeClient path remains usable for pedagogy and CI without widgets
+- [x] Offline / FakeClient path remains usable for pedagogy and CI without widgets
 
 ## Notes
 
@@ -90,3 +90,5 @@ viz+merge/split, notebook Assess section).
 
 CIP-0009 amended: Interaction shell (ipywidgets Layer B, label-on-demand, undo);
 backlog split Layer A vs Layer B.
+
+CIP-0009 Implemented: Layer A/B + lock + notebooks 03/09; awaiting PR / close.

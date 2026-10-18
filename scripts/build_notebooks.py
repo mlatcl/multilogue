@@ -21,7 +21,7 @@ import nbformat as nbf
 GITHUB_REPO = "mlatcl/multilogue"
 GITHUB_BRANCH = "main"
 AUTHOR = "[Neil D. Lawrence](http://inverseprobability.com)"
-DATE = "2026-10-17"
+DATE = "2026-10-18"
 
 # Colab / path bootstrap only — no scientific imports here.
 SETUP = r'''#@title Setup (run first)
@@ -572,7 +572,79 @@ viz.embedding_scatter(E, phrases["cluster"], path=FIG / "03_pca_clusters.png")
         """
 Cluster-size bars use the MAP harden view so empty topics are visible. Soft
 geometry remains in $R$. Hopeless overlap in the PCA scatter suggests revisiting
-$k$ or the phrase set before interpreting shares.
+$k$ or the phrase set before interpreting shares — that decision is **Assess**,
+not a format-gap maximisation.
+"""
+    ),
+    md(
+        """
+## Assess — interactive subject grain (Bishop–Tipping)
+
+Choosing how many subjects belong in the catalogue is closer to “what is the
+human grain of this corpus?” than to “which quote threshold?”. Following
+Bishop & Tipping’s hierarchical visualisation (TPAMI 1998), the analyst sees
+**both**:
+
+1. **Geometry** — a latent view of the current soft fit (updates after merge /
+   split; cheap to redraw).
+2. **Semantics** — an LLM catalogue of the same bags (exemplars + names).
+
+Neither view replaces the other. Merge / split / keep is human feedback — not
+automatic maximisation of a study metric $\\ell$. Under *assess without the
+question*, this loop is Assess; lenses, format gap, and multiverse under a
+**locked** catalogue are Address.
+
+**Label-on-demand:** every merge/split re-plots immediately; LLM names refresh
+only when you ask (dirty topics), so exploration is not blocked by API latency.
+"""
+    ),
+    code(
+        """
+import os
+from multilogue.subject_grain_shell import SubjectGrainShell, ipywidgets_available
+from multilogue.cluster import make_label_work
+
+label_work = make_label_work(
+    client, system="label",
+    prompt_template="Label these:\\n<<PHRASES>>", model="fake-small",
+)
+shell = SubjectGrainShell(
+    E, fit, phrases, phrase_col="phrase", seed=0, label_work=label_work,
+)
+# Widgets for live try-combinations; CI / smoke force the scripted path.
+use_widgets = (
+    ipywidgets_available()
+    and os.environ.get("MULTILOGUE_SUBJECT_GRAIN_WIDGETS", "1") != "0"
+)
+if use_widgets:
+    print("Layer B: interactive shell (merge / split / undo / name dirty / lock)")
+    shell.display()
+else:
+    print("Layer A scripted path (no widgets / MULTILOGUE_SUBJECT_GRAIN_WIDGETS=0)")
+    display(shell.catalogue())
+    shell.fit_view(path=FIG / "03_topic_fit_view.png", show=True)
+    # Demo one merge then undo so smoke stays deterministic
+    if shell.k >= 3:
+        shell.merge([0, 1])
+        print("after merge: k =", shell.k, "dirty =", sorted(shell.dirty))
+        shell.fit_view(path=FIG / "03_topic_fit_after_merge.png", show=True)
+        shell.name_dirty()
+        display(shell.catalogue())
+        shell.undo()
+        print("after undo: k =", shell.k)
+    lock = shell.lock(
+        path=root / "clusters" / "subject_grain_lock.json",
+        k_multiverse="hold",
+    )
+    print("locked subject grain:", lock["primary_k"], lock["k_multiverse"])
+    display(lock)
+"""
+    ),
+    md(
+        """
+Lock before Address spend: the artefact records `primary_k` and a hold /
+$\\pm 1$ multiverse policy. Wide $k$ grids belong in an explicit one-factor
+resolution sweep — not in the default factorial multiverse (see notebook 09).
 """
     ),
     md(
@@ -581,11 +653,24 @@ $k$ or the phrase set before interpreting shares.
 
 Exemplars are ranked by soft mass on each topic; the LLM never sees raw
 responsibility matrices. Researchers may edit the lens mapping afterwards — the
-first pass stays blind.
+first pass stays blind. After a subject-grain lock, labels here name the
+*locked* leaves.
 """
     ),
     code(
         """
+# Re-bind fit / R from the shell if the scripted path ran; widgets leave `fit` as initial.
+R = shell.responsibilities
+fit = shell.fit
+means = fit["means"]
+k = shell.k
+labels = responsibilities_to_labels(R)
+phrases = phrases.copy()
+phrases["cluster"] = labels
+valid = labels >= 0
+phrases["centroid_sim"] = 0.0
+phrases.loc[valid, "centroid_sim"] = (E[valid] * means[labels[valid]]).sum(1)
+
 cluster_units = example_phrases_for_soft_topics(
     phrases.phrase.tolist(), R, n_top=8, n_sample=2, seed=0,
 )
@@ -636,7 +721,8 @@ viz.embedding_scatter(
 Soft responsibilities $R$ and topic means feed notebook 08 (soft histograms →
 document EMD; soft lenses under a separate fixed $\\sigma^2_{\\mathrm{lens}}$).
 Notebook 04 can still use MAP or lens columns for document-weighted shares; soft
-composition is the CIP-0017 default for transport.
+composition is the CIP-0017 default for transport. Notebook 09 consumes a
+**locked** subject grain under format-gap $\\ell$ (multiverse holds $k$).
 """
     ),
 ]
@@ -1444,30 +1530,31 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
 stages = [
-    (0.50, 0.94, "1. Setup"),
-    (0.50, 0.84, "2. Access — public format pair"),
-    (0.50, 0.74, "3. Gold ℓ — mpos vs premise by format"),
-    (0.50, 0.64, "4. Address — soft-throughout pipeline"),
+    (0.50, 0.96, "1. Setup"),
+    (0.50, 0.88, "2. Access — public format pair"),
+    (0.50, 0.80, "3. Gold ℓ — mpos vs premise by format"),
+    (0.50, 0.72, "4. Assess — interactive subject grain"),
+    (0.50, 0.64, "5. Address — soft-throughout pipeline"),
 ]
 inners = [
-    (0.50, 0.54, "4a. Extract phrases"),
-    (0.50, 0.46, "4b. Embed"),
-    (0.50, 0.38, "4c. Soft cluster — MPPCA + topic σ² profile"),
-    (0.50, 0.30, "4d. Topic labels + framing lenses"),
-    (0.50, 0.22, "4e. Soft compare, document EMD, multiverse ℓ"),
+    (0.50, 0.54, "5a. Extract phrases"),
+    (0.50, 0.46, "5b. Embed"),
+    (0.50, 0.38, "5c. Soft cluster — MPPCA + topic σ² profile"),
+    (0.50, 0.30, "5d. Topic labels + framing lenses"),
+    (0.50, 0.22, "5e. Soft compare, EMD, multiverse ℓ (k held)"),
 ]
 tail = [
-    (0.50, 0.11, "5. Reading the run"),
-    (0.50, 0.01, "6. Outlook"),
+    (0.50, 0.11, "6. Reading the run"),
+    (0.50, 0.01, "7. Outlook"),
 ]
 
-fig, ax = plt.subplots(figsize=(9.5, 10.5))
+fig, ax = plt.subplots(figsize=(9.5, 11.0))
 ax.set_xlim(0, 1)
 ax.set_ylim(-0.04, 1.02)
 ax.axis("off")
 ax.set_title("Formats complexity — analysis flow", fontsize=14, pad=12)
 
-def _box(x, y, text, *, face, edge, width=0.72, height=0.065, fontsize=10, weight="normal"):
+def _box(x, y, text, *, face, edge, width=0.72, height=0.055, fontsize=10, weight="normal"):
     box = FancyBboxPatch(
         (x - width / 2, y - height / 2),
         width, height,
@@ -1479,7 +1566,7 @@ def _box(x, y, text, *, face, edge, width=0.72, height=0.065, fontsize=10, weigh
     ax.text(x, y, text, ha="center", va="center", fontsize=fontsize,
             fontweight=weight, transform=ax.transAxes, color="#1a202c")
 
-def _arrow(y0, y1, gap=0.032):
+def _arrow(y0, y1, gap=0.028):
     ax.annotate(
         "", xy=(0.50, y1 + gap), xytext=(0.50, y0 - gap),
         xycoords=ax.transAxes, textcoords=ax.transAxes,
@@ -1499,7 +1586,7 @@ ax.text(0.10, 0.575, "Address internals (one StageRunner run)",
 for x, y, t in stages:
     _box(x, y, t, face="#e8f1fa", edge="#2c5282", weight="bold")
 for x, y, t in inners:
-    _box(x, y, t, face="#edf2f7", edge="#718096", width=0.78, height=0.055, fontsize=9)
+    _box(x, y, t, face="#edf2f7", edge="#718096", width=0.78, height=0.05, fontsize=9)
 for x, y, t in tail:
     _box(x, y, t, face="#e8f1fa", edge="#2c5282", weight="bold")
 
@@ -1525,9 +1612,11 @@ Public-dialogue studies often ask whether *how* people are convened changes
 does not hard-code “format”; it supplies the Address machinery with a group
 column and a consumer metric $\\ell$. This notebook teaches that pattern: Access
 on a public format pair; a paper-aligned gold $\\ell$ (major position vs premise
-by format); then Address that prefers a cached CIMT LLM run at $k{=}10$ with
-German municipal cycling lenses (resuming via StageRunner when an API key is
-present), with a FakeClient formats demo as the offline fallback.
+by format); **Assess** that locks subject grain before spend; then Address that
+prefers a cached CIMT LLM run at locked $k{=}10$ with German municipal cycling
+lenses (resuming via StageRunner when an API key is present), with a FakeClient
+formats demo as the offline fallback. Multiverse holds $k$ (or $\\pm 1$) by
+default — not a wide resolution grid.
 """,
         )
     ),
@@ -1550,31 +1639,34 @@ numbers and titles so you can jump from the diagram to the matching cell.
         """
 ## Analysis flow
 
-Six numbered stages. **Address** expands into the soft-throughout pipeline that
-`StageRunner` resumes from disk (extract → embed → MPPCA topics → labels/lenses →
-soft compare / EMD → multiverse $\\ell$).
+Seven numbered stages. **Assess** locks subject grain (Bishop–Tipping dual view)
+before **Address** spends on lenses / $\\ell$. Address expands into the
+soft-throughout pipeline that `StageRunner` resumes from disk (extract → embed →
+MPPCA topics → labels/lenses → soft compare / EMD → multiverse $\\ell$ with $k$
+**held** or $\\pm 1$ only).
 
 ```mermaid
 flowchart TD
   S["1. Setup"] --> A["2. Access — public format pair"]
   A --> G["3. Gold ℓ — mpos vs premise by format"]
-  G --> AD["4. Address — soft-throughout pipeline"]
+  G --> AG["4. Assess — interactive subject grain"]
+  AG --> AD["5. Address — soft-throughout pipeline"]
 
   subgraph ADDR["Address internals (one StageRunner run)"]
     direction TB
-    E1["4a. Extract phrases"] --> E2["4b. Embed"]
-    E2 --> E3["4c. Soft cluster — MPPCA + topic σ² profile"]
-    E3 --> E4["4d. Topic labels + framing lenses"]
-    E4 --> E5["4e. Soft compare, document EMD, multiverse ℓ"]
+    E1["5a. Extract phrases"] --> E2["5b. Embed"]
+    E2 --> E3["5c. Soft cluster — MPPCA + topic σ² profile"]
+    E3 --> E4["5d. Topic labels + framing lenses"]
+    E4 --> E5["5e. Soft compare, document EMD, multiverse ℓ (k held)"]
   end
 
   AD --> ADDR
-  ADDR --> R["5. Reading the run"]
-  R --> O["6. Outlook"]
+  ADDR --> R["6. Reading the run"]
+  R --> O["7. Outlook"]
 
   classDef stage fill:#e8f1fa,stroke:#2c5282,stroke-width:1.5px,color:#1a202c
   classDef inner fill:#f7fafc,stroke:#718096,stroke-width:1px,color:#1a202c
-  class S,A,G,AD,R,O stage
+  class S,A,G,AG,AD,R,O stage
   class E1,E2,E3,E4,E5 inner
 ```
 
@@ -1583,9 +1675,10 @@ flowchart TD
 | 1 | Setup | Install / locate multilogue (first code cell) |
 | 2 | Access — public format pair | CIMT dialogue vs survey (or synthetic fallback) |
 | 3 | Gold $\\ell$ — mpos vs premise by format | Paper-aligned argument codes; no LLM |
-| 4 | Address — soft-throughout pipeline | Cache / live / FakeClient; StageRunner stages 4a–4e |
-| 5 | Reading the run | Catalogue, top concerns, findings markdown |
-| 6 | Outlook | What stays in a consumer formats package |
+| 4 | Assess — interactive subject grain | Bishop–Tipping dual view; lock $k$ before Address |
+| 5 | Address — soft-throughout pipeline | Cache / live / FakeClient; StageRunner stages 5a–5e |
+| 6 | Reading the run | Catalogue, top concerns, findings markdown |
+| 7 | Outlook | What stays in a consumer formats package |
 """
     ),
     code(FLOW_09),
@@ -1662,24 +1755,69 @@ else:
         """
 The sign of $\\Delta$ (survey − dialogue) should be **positive for mpos** and
 **negative for premise** if this slice reproduces the paper. Topic clustering
-below is a separate Address question.
+below is a separate question — first **Assess** the subject grain, then Address.
 """
     ),
     md(
         """
-## 4. Address — soft-throughout pipeline
+## 4. Assess — interactive subject grain
+
+Subject count $k$ defines how many topics the analysis admits. Putting a wide
+$k$ grid in the factorial multiverse swamps quote / kind / membership and
+answers the wrong stability question. CIP-0009 treats grain as **Assess EDA
+with a human in the loop** (Bishop–Tipping geometry + LLM catalogues); only
+after a **lock** does Address proceed.
+
+Notebook 03 teaches the dual-view shell on synthetic phrases. Here we record
+the lock policy for this formats run and keep the FakeClient / CI path
+scripted (no widgets required). On live CIMT: **lock grain before Address
+spend** — do not re-fit $k$ to maximise format-gap $\\ell$.
+"""
+    ),
+    code(
+        """
+import os
+from pathlib import Path
+from multilogue.subject_grain import lock_subject_grain
+
+# Formats Address default: hold locked primary k (CIP-0009). Optional pm1
+# via resolve_k_multiverse(10, "pm1") → [9, 10, 11]. Wide grids only via
+# explicit k_grid= on run_formats_complexity_demo (one-factor sweep).
+PRIMARY_K = 10 if (cimt_units is not None) else 5
+grain_lock = lock_subject_grain(
+    primary_k=PRIMARY_K,
+    k_multiverse="hold",
+    extra={
+        "note": "Assess lock before Address; dual-view merge/split lives in notebook 03",
+        "lock_before_spend": True,
+    },
+)
+lock_dir = Path("outputs/notebook_formats_complexity")
+lock_dir.mkdir(parents=True, exist_ok=True)
+from multilogue.config import dump_json
+dump_json(grain_lock, lock_dir / "subject_grain_lock.json")
+print("subject-grain lock →", lock_dir / "subject_grain_lock.json")
+print("primary_k =", grain_lock["primary_k"], "k_multiverse =", grain_lock["k_multiverse"])
+display(grain_lock)
+"""
+    ),
+    md(
+        """
+## 5. Address — soft-throughout pipeline
 
 StageRunner checkpoints under `outputs/formats_cimt_llm/` mean a prior CIMT LLM
-run can be reused without paying again. Internally this is stages **4a–4e** on
+run can be reused without paying again. Internally this is stages **5a–5e** on
 the flowchart (extract → embed → MPPCA + topic $\\sigma^2$ profile → labels/lenses
-→ soft compare / EMD / multiverse $\\ell$). The next cell therefore:
+→ soft compare / EMD / multiverse $\\ell$ with **$k$ held**). The next cell
+therefore:
 
 1. loads `.env` if present;
 2. if `OPENAI_API_KEY` is set and CIMT units exist — *resume or recache* the live
-   demo at $k{=}10$ with **German labels** and a fixed municipal cycling lens
-   vocabulary (paths, parking, surface, junctions/tram, access/Rhein, mixed
-   traffic). Completed extract/embed fingerprints are reused; new $k$ and prompts
-   re-run cluster labels and lenses;
+   demo at the **locked** $k{=}10$ with **German labels** and a fixed municipal
+   cycling lens vocabulary (paths, parking, surface, junctions/tram,
+   access/Rhein, mixed traffic). Completed extract/embed fingerprints are
+   reused; new prompts re-run cluster labels and lenses — do not sweep a wide
+   $k$ grid here;
 3. else if a complete cached run is already on disk — use those tables;
 4. else run the offline FakeClient formats demo so Colab / CI still work.
 
@@ -1733,7 +1871,7 @@ if key and cimt_units is not None:
     ]
     print(
         f"Live / resume CIMT Address → {LLM_OUT} "
-        f"(k=10, German cycling lenses; {len(units_live)} units)"
+        f"(locked k={PRIMARY_K}, German cycling lenses; {len(units_live)} units)"
     )
     summary = run_formats_complexity_demo(
         LLM_OUT,
@@ -1743,9 +1881,11 @@ if key and cimt_units is not None:
         extract_model="gpt-4.1-mini",
         embed_model="text-embedding-3-small",
         label_model="gpt-4.1-mini",
-        k=10, lens_runs=3, quiet=True, max_workers=4,
+        k=PRIMARY_K, lens_runs=3, quiet=True, max_workers=4,
         label_prompt_template=CYCLING_LABEL_PROMPT,
         lens_prompt_template=CYCLING_LENS_PROMPT,
+        k_multiverse="hold",
+        subject_grain_lock=grain_lock,
     )
     tables = CACHE_TABLES
     address_source = "cimt_llm"
@@ -1768,13 +1908,16 @@ else:
         "No CIMT cache and no API key — FakeClient formats demo →", out
     )
     summary = run_formats_complexity_demo(
-        out, n_docs_per_group=4, units_per_doc=3, k=5, lens_runs=3, quiet=True,
+        out, n_docs_per_group=4, units_per_doc=3, k=PRIMARY_K, lens_runs=3,
+        quiet=True, k_multiverse="hold", subject_grain_lock=grain_lock,
     )
     tables = out / "tables"
     address_source = "fakeclient"
 
 display(summary)
 print("Address source:", address_source)
+print("Subject grain:", (summary or {}).get("subject_grain") if isinstance(summary, dict) else None)
+print("Multiverse dims (no wide k by default):", (summary or {}).get("multiverse_dims") if isinstance(summary, dict) else None)
 print("Tables:", tables.resolve())
 print("Checkpoints:", LLM_OUT / "checkpoints" if address_source != "fakeclient" else tables.parent / "checkpoints")
 """
@@ -1799,18 +1942,24 @@ shares_path = tables / "variance_shares_format_gap.csv"
 if shares_path.is_file():
     shares = pd.read_csv(shares_path)
     viz.variance_share_bars(shares, path=FIG / "09_format_gap_variance.png")
+    # CIP-0009: factorial dims should not be dominated by a silent k grid
+    if "dimension" in shares.columns and (shares["dimension"] == "k").any():
+        print("Note: k appears in variance shares — pass k_grid= only for deliberate sweeps.")
 if isinstance(summary, dict):
     print("Soft:", summary.get("soft"))
     print("Distance:", summary.get("distance"))
+    print("Locked subject grain:", summary.get("subject_grain"))
 """
     ),
     md(
         """
-## 5. Reading the run
+## 6. Reading the run
 
 Findings summarise gold argument structure (when present), clusters, top
 concerns by format, and which analytic decisions move the topic-gap $\\ell$.
-This cell only reads tables — no LLM calls.
+Multiverse variance shares here are over quote / kind / membership — **not** a
+wide $k$ grid (stage **5e** holds locked grain). This cell only reads tables —
+no LLM calls.
 """
     ),
     code(
@@ -1860,12 +2009,14 @@ display(Markdown(md_text))
     ),
     md(
         """
-## 6. Outlook
+## 7. Outlook
 
 Multilogue owns the shared stages above. A formats-style consumer package still
 keeps: PDF/docx Access, study prompts and experience coding, researcher-edited
-lens YAML, and the precise definition of headline $\\ell$. See the formats
-cookbook and the soft / EMD concepts page in the documentation.
+lens YAML, and the precise definition of headline $\\ell$. Subject grain is
+locked in Assess (notebook 03 dual-view shell; this notebook's lock artefact)
+before Address spend. See the formats cookbook and the soft / EMD concepts page
+in the documentation.
 """
     ),
 ]

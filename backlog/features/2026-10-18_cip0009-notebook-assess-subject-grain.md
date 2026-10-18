@@ -1,7 +1,7 @@
 ---
 id: "2026-10-18_cip0009-notebook-assess-subject-grain"
 title: "CIP-0009: notebook Assess subject-grain section (shell + fallback)"
-status: "Ready"
+status: "Completed"
 priority: "High"
 created: "2026-10-18"
 last_updated: "2026-10-18"
@@ -40,17 +40,19 @@ Regenerate notebooks; smoke path must use non-widget / FakeClient scripted lock.
 
 ## Acceptance Criteria
 
-- [ ] Builder emits Assess subject-grain section with dual-view prose
-- [ ] Widget shell mounted when available; documented fallback otherwise
-- [ ] Address multiverse prose matches locked-\(k\) defaults
-- [ ] Notebooks regenerated from builder
-- [ ] Offline smoke / FakeClient path green without human input or widgets
-- [ ] Live CIMT path documents lock-before-spend
+- [x] Builder emits Assess subject-grain section with dual-view prose
+- [x] Widget shell mounted when available; documented fallback otherwise
+- [x] Address multiverse prose matches locked-\(k\) defaults
+- [x] Notebooks regenerated from builder
+- [x] Offline smoke / FakeClient path green without human input or widgets
+- [x] Live CIMT path documents lock-before-spend
 
 ## Implementation Notes
 
 - Do not hand-edit `.ipynb` as primary source.
-- Depends on Layer A, Layer B, and lock/multiverse tasks.
+- Notebook 03: dual-view shell + Layer A fallback (`MULTILOGUE_SUBJECT_GRAIN_WIDGETS=0`).
+- Notebook 09: Assess lock section; Address uses locked \(k\); flowchart renumbered.
+- Smoke sets `MULTILOGUE_SUBJECT_GRAIN_WIDGETS=0`.
 
 ## Related
 
@@ -65,3 +67,5 @@ Regenerate notebooks; smoke path must use non-widget / FakeClient scripted lock.
 Task created (Ready) when CIP-0009 Accepted.
 
 Updated dependencies to include Layer B ipywidgets shell after design amendment.
+
+Implemented builder sections; regenerated notebooks; smoke 03 + 09 green.

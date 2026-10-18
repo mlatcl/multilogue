@@ -42,6 +42,8 @@ def test_notebook_executes(nb_path: Path, tmp_path, monkeypatch, jupyter_data_di
     monkeypatch.setenv("MULTILOGUE_ACCESS_YES", "1")
     monkeypatch.setenv("MULTILOGUE_DATAPATH", str(tmp_path / "cache"))
     monkeypatch.setenv("JUPYTER_DATA_DIR", str(jupyter_data_dir))
+    # CIP-0009: force Layer A scripted subject-grain path (no widget frontend)
+    monkeypatch.setenv("MULTILOGUE_SUBJECT_GRAIN_WIDGETS", "0")
     sys.path.insert(0, str(ROOT))
     nb = nbformat.read(nb_path, as_version=4)
     # Bind kernel to loopback so jupyter_client does not call psutil.net_if_addrs
