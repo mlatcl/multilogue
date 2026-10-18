@@ -1,7 +1,7 @@
 ---
 id: "000A"
 title: "Analysts can interactively set subject grain before Address locks topics"
-status: "Proposed"
+status: "In Progress"
 priority: "High"
 created: "2026-10-18"
 last_updated: "2026-10-18"
@@ -78,3 +78,6 @@ notebook-driven merge/split still re-draws the Bishop–Tipping-style view.
 ### 2026-10-18
 Requirement drafted with CIP-0009 (Proposed). Clarified: Bishop–Tipping **fit
 visualisation** and LLM merge/split catalogues are both required Assess views.
+
+CIP-0009 Accepted → In Progress; backlog tasks Ready (lock/multiverse, library
+viz+merge/split, notebook Assess section).
