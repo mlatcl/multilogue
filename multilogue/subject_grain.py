@@ -271,27 +271,37 @@ def profile_sigma2_holding_responsibilities(
     *,
     grid: Sequence[float] | None = None,
     seed: int = 0,
-    max_iter: int = 30,
+    max_iter: int = 0,
 ) -> dict[str, Any]:
-    """CIP-0017-style σ² pick without destroying interactive soft assignments.
+    """CIP-0017-style σ² pick **without redistributing** soft assignments.
 
-    For each grid value, run full-mixture EM from the *current* ``R``, then
-    choose the softest non-collapsing floor (largest σ² among viable fits).
+    Default ``max_iter=0``: for each grid value, only re-fit component geometry
+    (M-step) under the *current* ``R``. Softest non-collapsing σ² wins, then the
+    returned fit keeps that same ``R``. Full EM after Accept was collapsing one
+    child of a balanced split on real embeddings — do not reintroduce that here.
     """
     X = np.asarray(X, float)
     R0 = np.asarray(R, float)
     if R0.ndim != 2 or R0.shape[0] != X.shape[0]:
         raise ValueError("R must be (n, k) aligned with X")
     k = int(R0.shape[1])
+    n = int(R0.shape[0])
     grid_vals = list(grid) if grid is not None else list(DEFAULT_TOPIC_SIGMA2_GRID)
     min_map = 1 if k == 1 else max(2, int(np.ceil(0.5 * k)))
+    # Reject floors that leave a near-empty MAP bag (when EM is allowed).
+    min_map_count = 1 if k == 1 else max(2, int(np.ceil(0.05 * n)))
+    score_iters = max(0, int(max_iter))
     curve: list[dict[str, Any]] = []
     fits: dict[float, dict[str, Any]] = {}
     for s2 in sorted(float(s) for s in grid_vals):
         fit = _fit_from_responsibilities(
-            X, R0.copy(), s2, seed=seed, max_iter=max_iter
+            X, R0.copy(), s2, seed=seed, max_iter=score_iters
         )
         diag = topic_fit_diagnostics(fit)
+        map_sizes = np.bincount(
+            np.argmax(fit["responsibilities"], axis=1), minlength=k
+        )
+        diag["min_map_count"] = int(map_sizes.min()) if k else 0
         curve.append(diag)
         fits[s2] = fit
     viable = [
@@ -299,6 +309,7 @@ def profile_sigma2_holding_responsibilities(
         for d in curve
         if (not d["collapsed"])
         and int(d["n_map"]) >= min_map
+        and int(d.get("min_map_count", 0)) >= min_map_count
         and float(d["max_mean_cos"]) <= 0.99
     ]
     if viable:
@@ -307,11 +318,18 @@ def profile_sigma2_holding_responsibilities(
     else:
         best = max(
             curve,
-            key=lambda d: (int(d["n_map"]), -float(d["max_mean_cos"])),
+            key=lambda d: (
+                int(d["n_map"]),
+                int(d.get("min_map_count", 0)),
+                -float(d["max_mean_cos"]),
+            ),
         )
         selection = "fallback_least_collapsed_held_R"
     s2_star = float(best["sigma2"])
-    out = fits[s2_star]
+    # Always return geometry under the *original* R at the chosen floor.
+    out = _fit_from_responsibilities(
+        X, R0.copy(), s2_star, seed=seed, max_iter=0
+    )
     return {
         "sigma2": s2_star,
         "fit": out,

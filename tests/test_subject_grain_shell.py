@@ -461,10 +461,12 @@ def test_shell_profile_accept_updates_sigma2_and_lock_extra(tmp_path: Path):
     )
     before = float(shell.fit["sigma2"])
     shell.merge([0, 1], name_merged=False)
-    # Propose keeps parent σ²; Accept may re-profile
+    R_pending = shell.responsibilities.copy()
+    # Propose keeps parent σ²; Accept re-profiles geometry but holds R
     assert shell.fit["sigma2"] == pytest.approx(before)
     shell.accept_proposal()
     assert float(shell.fit["sigma2"]) > 0
+    np.testing.assert_allclose(shell.responsibilities, R_pending, atol=1e-12)
     lock = shell.lock(path=tmp_path / "lock.json")
     assert lock["sigma2_mode"] == "profile"
     assert lock["em_max_iter_accept"] == 12

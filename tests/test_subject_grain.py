@@ -260,12 +260,14 @@ def test_formats_demo_k_grid_one_factor_sweep(tmp_path: Path):
 
 
 def test_initial_assess_fit_k1_profile_and_fixed():
+    from multilogue.mppca import DEFAULT_TOPIC_SIGMA2
+
     X, _ = _planted_blobs(seed=11, k=2, n_per=25)
     fit_p = initial_assess_fit(X, k=1, sigma2_mode="profile", seed=11, max_iter=20)
     assert fit_p["k"] == 1
     assert fit_p["responsibilities"].shape == (X.shape[0], 1)
-    assert fit_p["sigma2"] > 0
-    assert fit_p["sigma2_selection"]["selection"]
+    assert fit_p["sigma2"] == pytest.approx(DEFAULT_TOPIC_SIGMA2)
+    assert fit_p["sigma2_selection"]["selection"] == "k1_default_floor"
     fit_f = initial_assess_fit(
         X, k=1, sigma2_mode="fixed", sigma2=0.15, seed=11, max_iter=15
     )
@@ -286,8 +288,31 @@ def test_profile_sigma2_holding_responsibilities_keeps_k():
     X, _ = _planted_blobs(seed=13, k=3)
     fit = mppca_fit(X, k=3, sigma2=0.08, seed=13, max_iter=25)
     R = fit["responsibilities"].copy()
-    prof = profile_sigma2_holding_responsibilities(X, R, seed=13, max_iter=10)
+    prof = profile_sigma2_holding_responsibilities(X, R, seed=13)
     assert prof["fit"]["k"] == 3
     assert prof["fit"]["responsibilities"].shape == R.shape
+    np.testing.assert_allclose(prof["fit"]["responsibilities"], R, atol=1e-12)
     assert prof["sigma2"] > 0
     assert "held_R" in prof["selection"]
+
+
+def test_profile_hold_r_preserves_balanced_split_on_embeddings():
+    """Regression: Accept re-profile must not collapse a balanced split."""
+    E = np.load(
+        __import__("pathlib").Path("notebooks/outputs/emb")
+        / "embeddings_text-embedding-3-small.npy"
+    )
+    if E.shape[0] < 20:
+        pytest.skip("cached embeddings unavailable")
+    fit1 = initial_assess_fit(E, k=1, sigma2_mode="profile", seed=0)
+    split = propose_split(E, fit1, 0, seed=0, max_iter=20)
+    R = split["fit"]["responsibilities"].copy()
+    mass_before = R.sum(0)
+    assert mass_before.min() / mass_before.sum() > 0.25
+    prof = profile_sigma2_holding_responsibilities(E, R, seed=0)
+    mass_after = prof["fit"]["responsibilities"].sum(0)
+    np.testing.assert_allclose(mass_after, mass_before, atol=1e-9)
+    map_sizes = np.bincount(
+        prof["fit"]["responsibilities"].argmax(1), minlength=2
+    )
+    assert map_sizes.min() >= 10

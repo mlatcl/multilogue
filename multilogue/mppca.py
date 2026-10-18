@@ -281,7 +281,10 @@ def topic_fit_diagnostics(fit: dict[str, Any]) -> dict[str, float | int | bool]:
     eps = 1e-12
     ent = -(R * np.log(R + eps)).sum(axis=1)
     q_vals = [int(f.get("q", 0)) for f in fit.get("component_fits", [])]
-    collapsed = bool(fit.get("collapsed", False)) or n_map <= 1 or max_mean_cos > 0.999
+    # k=1: a single MAP topic is the intended Assess entry, not collapse.
+    collapsed = bool(fit.get("collapsed", False)) or (
+        (k >= 2 and n_map <= 1) or max_mean_cos > 0.999
+    )
     return {
         "n_map": n_map,
         "max_mean_cos": max_mean_cos,
@@ -320,12 +323,31 @@ def profile_topic_sigma2(
     grid_vals = list(grid) if grid is not None else list(DEFAULT_TOPIC_SIGMA2_GRID)
     if not grid_vals:
         raise ValueError("topic σ² grid must be non-empty")
-    # k=1 (CIP-000A Assess entry): a single MAP topic is success, not collapse.
-    min_map = (
-        1
-        if int(k) == 1
-        else max(2, int(np.ceil(min_map_fraction * k)))
-    )
+    k = int(k)
+    # k=1 (CIP-000A Assess entry): no multi-topic collapse signal — use the
+    # package default floor (softest-on-grid would pick ~1.0 and wipe MAP grain).
+    if k == 1:
+        s2 = float(DEFAULT_TOPIC_SIGMA2)
+        fit = mppca_fit(
+            X,
+            1,
+            sigma2=s2,
+            seed=seed,
+            max_iter=max_iter,
+            tol=tol,
+            n_init=n_init,
+            normalize_means=normalize_means,
+        )
+        diag = topic_fit_diagnostics(fit)
+        return {
+            "sigma2": s2,
+            "fit": fit,
+            "curve": [diag],
+            "selection": "k1_default_floor",
+            "min_map": 1,
+        }
+
+    min_map = max(2, int(np.ceil(min_map_fraction * k)))
 
     curve: list[dict[str, float | int | bool]] = []
     fits: dict[float, dict[str, Any]] = {}
