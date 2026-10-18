@@ -110,6 +110,80 @@ def docs_per_group_bars(
     return save(fig, path, show=show)
 
 
+def sentence_length_hist(
+    sentences: pd.DataFrame,
+    *,
+    path: str | Path | None = None,
+    show: bool = True,
+):
+    """Histogram of words per sentence (Assess)."""
+    plt = _plt()
+    fig, ax = plt.subplots(figsize=(7.5, 3.2))
+    vals = sentences["n_words"] if len(sentences) else []
+    ax.hist(vals, bins=20, color=PALETTE[0], alpha=0.85)
+    ax.set_xlabel("Words per sentence")
+    ax.set_ylabel("Count")
+    ax.set_title("Sentence lengths (Assess)", loc="left", color=INK, fontsize=11)
+    ax.axvline(3, color=MUTED, ls="--", lw=1)
+    ax.axvline(80, color=MUTED, ls=":", lw=1)
+    tidy(ax)
+    fig.tight_layout()
+    return save(fig, path, show=show)
+
+
+def word_length_hist(
+    words: pd.DataFrame,
+    *,
+    path: str | Path | None = None,
+    show: bool = True,
+):
+    """Histogram of letter-token lengths, optionally by inferred language."""
+    plt = _plt()
+    fig, ax = plt.subplots(figsize=(7.5, 3.2))
+    if len(words) and "lang" in words.columns and words["lang"].nunique() > 1:
+        for i, (g, sub) in enumerate(words.groupby("lang")):
+            ax.hist(
+                sub["n_chars"],
+                bins=range(1, int(sub["n_chars"].max()) + 2),
+                alpha=0.55,
+                label=str(g),
+                color=PALETTE[i % len(PALETTE)],
+            )
+        ax.legend(frameon=False, fontsize=9)
+    else:
+        vals = words["n_chars"] if len(words) else []
+        ax.hist(vals, bins=20, color=PALETTE[1], alpha=0.85)
+    ax.set_xlabel("Characters per word (letters only)")
+    ax.set_ylabel("Count")
+    ax.set_title("Word lengths (Assess)", loc="left", color=INK, fontsize=11)
+    ax.axvline(24, color=MUTED, ls="--", lw=1)
+    tidy(ax)
+    fig.tight_layout()
+    return save(fig, path, show=show)
+
+
+def char_class_bars(
+    inventory: pd.DataFrame,
+    *,
+    path: str | Path | None = None,
+    show: bool = True,
+):
+    """Bar chart of character-class shares (Assess)."""
+    plt = _plt()
+    fig, ax = plt.subplots(figsize=(6.5, 3.0))
+    ax.bar(
+        inventory["char_class"].astype(str),
+        inventory["share"],
+        color=PALETTE[2],
+    )
+    ax.set_ylabel("Share of characters")
+    ax.set_title("Character classes (Assess)", loc="left", color=INK, fontsize=11)
+    ax.axhline(0.05, color=MUTED, ls="--", lw=1)
+    tidy(ax)
+    fig.tight_layout()
+    return save(fig, path, show=show)
+
+
 def yield_bars(
     yield_df: pd.DataFrame,
     *,

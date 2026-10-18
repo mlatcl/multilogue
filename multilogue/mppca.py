@@ -94,7 +94,25 @@ def fit_weighted_ppca(
 
     sw = np.sqrt(np.clip(w, 0.0, None))
     Xw = sw[:, None] * Xc
-    _, s, Vt = np.linalg.svd(Xw, full_matrices=False)
+    # High-d embeddings + tiny / imbalanced responsibilities can make the
+    # weighted matrix ill-conditioned; never let SVD kill the whole EM fit.
+    Xw = np.nan_to_num(Xw, nan=0.0, posinf=0.0, neginf=0.0)
+    try:
+        _, s, Vt = np.linalg.svd(Xw, full_matrices=False)
+    except np.linalg.LinAlgError:
+        scale = float(np.linalg.norm(Xw)) + 1e-12
+        jitter = (1e-8 * scale) * np.random.default_rng(0).standard_normal(Xw.shape)
+        try:
+            _, s, Vt = np.linalg.svd(Xw + jitter, full_matrices=False)
+        except np.linalg.LinAlgError:
+            return {
+                "mu": mu,
+                "U_q": np.zeros((d, 0)),
+                "lambdas_q": np.zeros(0),
+                "log_det": d * np.log(sigma2),
+                "q": 0,
+                "weight_sum": w_sum,
+            }
     lambdas = (s ** 2) / w_sum
     retain = lambdas > sigma2
     q = int(retain.sum())
@@ -171,7 +189,14 @@ def mppca_fit(
     if sigma2 <= 0:
         raise ValueError(f"sigma2 must be positive, got {sigma2}")
 
-    km = KMeans(n_clusters=k, random_state=seed, n_init=n_init)
+    # Explicit k-means++ (sklearn default) so topic EM does not silently
+    # depend on a library default change.
+    km = KMeans(
+        n_clusters=k,
+        init="k-means++",
+        random_state=seed,
+        n_init=n_init,
+    )
     labels_init = km.fit_predict(X)
     R = np.zeros((n, k), dtype=float)
     R[np.arange(n), labels_init] = 1.0

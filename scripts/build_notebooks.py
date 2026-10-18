@@ -269,10 +269,12 @@ NOTEBOOKS["01_assess.ipynb"] = [
             "Assess — without the research question",
             """
 Assess is work that remains valid if the downstream research question changes:
-sizes, emptiness, crude vocabulary, coverage across documents. Anything that
-needs a concern/benefit taxonomy, a framing lens, or a headline metric belongs
-in Address. This notebook teaches that boundary and runs the Assess helpers on
-the public CIMT cycling corpus.
+unit and sentence lengths, word-length distributions, character-class sanity,
+emptiness, crude vocabulary, coverage across documents. Anything that needs a
+concern/benefit taxonomy, a framing lens, or a headline metric belongs in
+Address. This notebook teaches that boundary on **CIMT German** dialogue/survey
+units when the network is available, with synthetic English only as an offline
+fallback (CIP-0008).
 """,
         )
     ),
@@ -287,7 +289,9 @@ already Address.
 
 Why the split? Reusable quality work should not be locked inside a
 question-specific notebook. Assess helpers return tables; plots here are
-diagnostics, not findings.
+diagnostics, not findings. Prefer a real public corpus (CIMT Bonn cycling,
+German) so length and character histograms reflect actual dialogue text; keep
+synthetic units only when the download is unavailable.
 """
     ),
     md(
@@ -296,9 +300,9 @@ diagnostics, not findings.
 
 | In Assess | Not Assess (→ Address) |
 |-----------|-------------------------|
-| Unit lengths, empty flags | Concern / benefit extraction |
-| Documents per group | Framing lenses |
-| Token frequencies | Headline metric $\\ell$ |
+| Unit / sentence / word lengths | Concern / benefit extraction |
+| Character-class inventory + unusual codepoints | Framing lenses |
+| Empty flags, token frequencies | Headline metric $\\ell$ |
 | Coverage / missingness | Soft PPCA mixture weights |
 
 The boundary is methodological, not computational. Counting tokens is cheap;
@@ -307,44 +311,101 @@ calling an LLM is expensive — but cost alone does not decide the phase.
     ),
     code(
         """
+import os
 from IPython.display import display
+from multilogue.access import load
+from multilogue.experiment import load_cimt_format_pair
 from multilogue.assess_base import (
-    unit_size_table, docs_per_group, empty_unit_flags, token_frequency,
+    assess_text_report, docs_per_group, token_frequency,
 )
 from multilogue import viz
 """
     ),
-    code(LOAD_CIMT_PAIR),
     code(
         """
-sizes = unit_size_table(units)
-empty = empty_unit_flags(units, min_words=4)
-print(f"units={len(units)}; below min_words={len(empty)}")
-display(docs_per_group(units, "format"))
+os.environ.setdefault("MULTILOGUE_ACCESS_YES", "1")
+cimt_units, cimt_meta = load_cimt_format_pair(max_units_per=60)
+if cimt_units is not None:
+    units = list(cimt_units)
+    for u in units:
+        u.setdefault("group", u.get("format"))
+    assess_lang = "de"
+    corpus_label = "CIMT Cycling-Dialogue-Bonn vs Survey-Bonn (de)"
+    display(cimt_meta)
+else:
+    print("CIMT unavailable:", (cimt_meta or {}).get("error", "unknown"))
+    units = load("synthetic", n_docs_per_group=4, units_per_doc=3)["units"]
+    # Plant one OCR-ish / undersized unit so flags are visible offline.
+    units = list(units) + [{
+        "unit_id": "junk", "doc_id": "junk_doc", "group": "group_a",
+        "text": "ok\\ufffd\\x00 " + ("fusedtoken" * 4),
+    }]
+    assess_lang = "en"
+    corpus_label = "synthetic English (Access fallback)"
+
+report = assess_text_report(units, lang=assess_lang)
+group_key = "format" if any(u.get("format") for u in units) else "group"
+print(
+    f"{corpus_label} — units={len(units)}; lang={assess_lang}; "
+    f"empty={len(report['empty'])}; "
+    f"unit_flags={len(report['unit_length_flags'])}; "
+    f"char_flags={len(report['char_flags'])}"
+)
+display(docs_per_group(units, group_key))
+display(report["size_summary"])
 display(token_frequency([u["text"] for u in units], top_n=15))
 """
     ),
     md(
         """
-## Diagnostics
+## Diagnostics — lengths
 
-Unit-size histograms catch OCR debris and truncated chunks before any model
-call. Document counts by format show whether later *document-weighted*
-comparisons will rest on a thin sample.
+Ask whether *units* (often paragraphs from Access) are a sensible length, whether
+they contain sentences of a sensible length, and whether letter-token lengths
+look like German (CIMT) or English (fallback) words rather than OCR fused
+strings. Defaults are dialogue-ish bands (see `assess_base` constants); retune
+for your corpus, but keep the bands question-agnostic.
 """
     ),
     code(
         """
-viz.unit_size_hist(sizes, group_col="format", units=units, path=FIG / "01_unit_sizes.png")
-viz.docs_per_group_bars(docs_per_group(units, "format"), path=FIG / "01_docs.png")
+viz.unit_size_hist(
+    report["sizes"], group_col=group_key, units=units, path=FIG / "01_unit_sizes.png",
+)
+viz.sentence_length_hist(report["sentences"], path=FIG / "01_sentence_lengths.png")
+viz.word_length_hist(report["words"], path=FIG / "01_word_lengths.png")
+viz.docs_per_group_bars(docs_per_group(units, group_key), path=FIG / "01_docs.png")
+display(report["unit_length_flags"].head())
+display(report["sentence_flags"].head())
+display(report["word_flags"].head())
+"""
+    ),
+    md(
+        """
+## Diagnostics — characters
+
+Character-class shares catch replacement characters (`U+FFFD`), controls, and
+other non-text debris that word counts miss. Flag units whose share of
+``other`` exceeds a small threshold; inspect the unusual-codepoint table before
+paying for extraction.
+"""
+    ),
+    code(
+        """
+viz.char_class_bars(report["char_classes"], path=FIG / "01_char_classes.png")
+display(report["char_classes"])
+display(report["unusual_codepoints"].head(10))
+display(report["char_flags"])
 """
     ),
     md(
         """
 The figures are not answers to a research question. They characterise the corpus
 so that Address — extraction, clustering, weighting — starts from a known base.
-If the empty-unit count is large, fix Access or the min-words gate before paying
-for LLM calls.
+
+**Stop before Address if**: many units are empty / too short; sentence or word
+lengths are wildly extreme; ``other`` character share is high. Fix Access (or
+the min-words gate) first.
 """
     ),
     md(
@@ -352,8 +413,8 @@ for LLM calls.
 # Outlook
 
 Address begins when we ask the model for structured points. Notebook 02 shows
-narrow extraction passes, checkpoints, and quote support — the first place the
-research question enters through prompts and kinds.
+narrow extraction passes, checkpoints, quote support, and how phrases are
+embedded — the first place the research question enters through prompts and kinds.
 """
     ),
 ]
@@ -1554,25 +1615,26 @@ from matplotlib.patches import FancyBboxPatch
 stages = [
     (0.50, 0.96, "1. Setup"),
     (0.50, 0.88, "2. Access — public format pair"),
-    (0.50, 0.80, "3. Gold ℓ — mpos vs premise by format"),
-    (0.50, 0.72, "4. Assess — interactive subject grain"),
-    (0.50, 0.64, "5. Address — soft-throughout pipeline"),
+    (0.50, 0.80, "3. Assess — text diagnostics"),
+    (0.50, 0.72, "4. Gold ℓ — mpos vs premise by format"),
+    (0.50, 0.64, "5. Assess — interactive subject grain"),
+    (0.50, 0.56, "6. Address — soft-throughout pipeline"),
 ]
 inners = [
-    (0.50, 0.54, "5a. Extract phrases"),
-    (0.50, 0.46, "5b. Embed"),
-    (0.50, 0.38, "5c. Soft cluster — MPPCA + topic σ² profile"),
-    (0.50, 0.30, "5d. Topic labels + framing lenses"),
-    (0.50, 0.22, "5e. Soft compare, EMD, multiverse ℓ (k held)"),
+    (0.50, 0.46, "6a. Extract phrases"),
+    (0.50, 0.38, "6b. Embed"),
+    (0.50, 0.30, "6c. Soft cluster — MPPCA + topic σ² profile"),
+    (0.50, 0.22, "6d. Topic labels + framing lenses"),
+    (0.50, 0.14, "6e. Soft compare, EMD, multiverse ℓ (k held)"),
 ]
 tail = [
-    (0.50, 0.11, "6. Reading the run"),
-    (0.50, 0.01, "7. Outlook"),
+    (0.50, 0.06, "7. Reading the run"),
+    (0.50, -0.02, "8. Outlook"),
 ]
 
-fig, ax = plt.subplots(figsize=(9.5, 11.0))
+fig, ax = plt.subplots(figsize=(9.5, 12.0))
 ax.set_xlim(0, 1)
-ax.set_ylim(-0.04, 1.02)
+ax.set_ylim(-0.06, 1.02)
 ax.axis("off")
 ax.set_title("Formats complexity — analysis flow", fontsize=14, pad=12)
 
@@ -1596,13 +1658,13 @@ def _arrow(y0, y1, gap=0.028):
     )
 
 frame = FancyBboxPatch(
-    (0.08, 0.175), 0.84, 0.42,
+    (0.08, 0.105), 0.84, 0.40,
     boxstyle="round,pad=0.01,rounding_size=0.02",
     facecolor="#f7fafc", edgecolor="#a0aec0", linewidth=1.0,
     linestyle="--", transform=ax.transAxes, clip_on=False,
 )
 ax.add_patch(frame)
-ax.text(0.10, 0.575, "Address internals (one StageRunner run)",
+ax.text(0.10, 0.490, "Address internals (one StageRunner run)",
         fontsize=9, color="#4a5568", transform=ax.transAxes, style="italic")
 
 for x, y, t in stages:
@@ -1662,34 +1724,35 @@ numbers and titles so you can jump from the diagram to the matching cell.
         """
 ## Analysis flow
 
-Seven numbered stages. **Assess** locks subject grain (Bishop–Tipping dual view)
-before **Address** spends on lenses / $\\ell$. Address expands into the
-soft-throughout pipeline that `StageRunner` resumes from disk (extract → embed →
-MPPCA topics → labels/lenses → soft compare / EMD → multiverse $\\ell$ with $k$
-**held** or $\\pm 1$ only).
+Eight numbered stages. **Assess** covers text diagnostics (CIP-0008) and locks
+subject grain (Bishop–Tipping dual view) before **Address** spends on lenses /
+$\\ell$. Address expands into the soft-throughout pipeline that `StageRunner`
+resumes from disk (extract → embed → MPPCA topics → labels/lenses → soft compare
+/ EMD → multiverse $\\ell$ with $k$ **held** or $\\pm 1$ only).
 
 ```mermaid
 flowchart TD
   S["1. Setup"] --> A["2. Access — public format pair"]
-  A --> G["3. Gold ℓ — mpos vs premise by format"]
-  G --> AG["4. Assess — interactive subject grain"]
-  AG --> AD["5. Address — soft-throughout pipeline"]
+  A --> T["3. Assess — text diagnostics"]
+  T --> G["4. Gold ℓ — mpos vs premise by format"]
+  G --> AG["5. Assess — interactive subject grain"]
+  AG --> AD["6. Address — soft-throughout pipeline"]
 
   subgraph ADDR["Address internals (one StageRunner run)"]
     direction TB
-    E1["5a. Extract phrases"] --> E2["5b. Embed"]
-    E2 --> E3["5c. Soft cluster — MPPCA + topic σ² profile"]
-    E3 --> E4["5d. Topic labels + framing lenses"]
-    E4 --> E5["5e. Soft compare, document EMD, multiverse ℓ (k held)"]
+    E1["6a. Extract phrases"] --> E2["6b. Embed"]
+    E2 --> E3["6c. Soft cluster — MPPCA + topic σ² profile"]
+    E3 --> E4["6d. Topic labels + framing lenses"]
+    E4 --> E5["6e. Soft compare, document EMD, multiverse ℓ (k held)"]
   end
 
   AD --> ADDR
-  ADDR --> R["6. Reading the run"]
-  R --> O["7. Outlook"]
+  ADDR --> R["7. Reading the run"]
+  R --> O["8. Outlook"]
 
   classDef stage fill:#e8f1fa,stroke:#2c5282,stroke-width:1.5px,color:#1a202c
   classDef inner fill:#f7fafc,stroke:#718096,stroke-width:1px,color:#1a202c
-  class S,A,G,AG,AD,R,O stage
+  class S,A,T,G,AG,AD,R,O stage
   class E1,E2,E3,E4,E5 inner
 ```
 
@@ -1697,11 +1760,12 @@ flowchart TD
 |---|---------|--------------|
 | 1 | Setup | Install / locate multilogue (first code cell) |
 | 2 | Access — public format pair | CIMT dialogue vs survey |
-| 3 | Gold $\\ell$ — mpos vs premise by format | Paper-aligned argument codes; no LLM |
-| 4 | Assess — interactive subject grain | Bishop–Tipping dual view; lock $k$ before Address |
-| 5 | Address — soft-throughout pipeline | Cache / live / phrases_from_units; StageRunner stages 5a–5e |
-| 6 | Reading the run | Catalogue, top concerns, findings markdown |
-| 7 | Outlook | What stays in a consumer formats package |
+| 3 | Assess — text diagnostics | Lengths / characters (CIP-0008); stop if debris dominates |
+| 4 | Gold $\\ell$ — mpos vs premise by format | Paper-aligned argument codes; no LLM |
+| 5 | Assess — interactive subject grain | Bishop–Tipping dual view; lock $k$ before Address |
+| 6 | Address — soft-throughout pipeline | Cache / live / phrases_from_units; StageRunner stages |
+| 7 | Reading the run | Catalogue, top concerns, findings markdown |
+| 8 | Outlook | What stays in a consumer formats package |
 """
     ),
     code(FLOW_09),
@@ -1711,7 +1775,6 @@ flowchart TD
 ## 2. Access — public format pair
 
 CIMT Bonn cycling *dialogue* vs *survey* stand in for workshop vs survey.
-Assess without the analysis question: coverage by format and unit sizes.
 Network is required once to populate the cache (`MULTILOGUE_DATAPATH` or
 `~/.cache/multilogue`).
 """
@@ -1723,7 +1786,8 @@ from IPython.display import display
 import pandas as pd
 from multilogue.experiment import load_cimt_format_pair
 from multilogue.extract import phrases_from_units
-from multilogue.assess_base import docs_per_group, unit_size_table
+from multilogue.assess_base import assess_text_report, docs_per_group
+from multilogue import viz
 """
     ),
     code(
@@ -1738,18 +1802,55 @@ if cimt_units is None:
     )
 access_units = cimt_units
 access_label = "CIMT Cycling-Dialogue-Bonn vs Survey-Bonn"
+access_lang = "de"
 display(cimt_meta)
 
 print(access_label, "—", len(access_units), "units")
 display(docs_per_group(access_units, "format"))
-display(unit_size_table(access_units).describe())
 offline_phrases = phrases_from_units(access_units, extra_fields=["group", "format"])
 print(f"{len(offline_phrases)} offline phrases (unit-as-phrase)")
 """
     ),
     md(
         """
-## 3. Gold $\\ell$ — mpos vs premise by format
+## 3. Assess — text diagnostics
+
+Question-agnostic checks (same helpers as notebook 01): are paragraphs a
+sensible length? Do sentences and letter-tokens look sane for German? Is the
+character inventory mostly letters/punctuation?
+
+**Do not proceed to Address if** empty/too-short units dominate, sentence or
+word lengths are wildly extreme, or ``other`` character share is high — fix
+Access first (CIP-0008).
+"""
+    ),
+    code(
+        """
+report = assess_text_report(access_units, lang=access_lang)
+print(
+    f"empty={len(report['empty'])}; "
+    f"unit_flags={len(report['unit_length_flags'])}; "
+    f"sent_flags={len(report['sentence_flags'])}; "
+    f"word_flags={len(report['word_flags'])}; "
+    f"char_flags={len(report['char_flags'])}"
+)
+display(report["size_summary"])
+viz.unit_size_hist(
+    report["sizes"], group_col="format", units=access_units,
+    path=FIG / "09_unit_sizes.png",
+)
+viz.sentence_length_hist(report["sentences"], path=FIG / "09_sentence_lengths.png")
+viz.word_length_hist(report["words"], path=FIG / "09_word_lengths.png")
+viz.char_class_bars(report["char_classes"], path=FIG / "09_char_classes.png")
+display(report["char_classes"])
+display(report["unusual_codepoints"].head(8))
+display(report["unit_length_flags"].head())
+display(report["char_flags"].head())
+"""
+    ),
+    md(
+        """
+## 4. Gold $\\ell$ — mpos vs premise by format
 
 Romberg & Conrad (2021) report that map *dialogue* contributions are longer and
 **premise-rich**, while the Bonn *survey* is short and **major-position-heavy**.
@@ -1786,7 +1887,7 @@ below is a separate question — first **Assess** the subject grain, then Addres
     ),
     md(
         """
-## 4. Assess — interactive subject grain
+## 5. Assess — interactive subject grain
 
 Subject count $k$ defines how many topics the analysis admits. Putting a wide
 $k$ grid in the factorial multiverse swamps quote / kind / membership and
@@ -1829,7 +1930,7 @@ display(grain_lock)
     ),
     md(
         """
-## 5. Address — soft-throughout pipeline
+## 6. Address — soft-throughout pipeline
 
 StageRunner checkpoints under `outputs/formats_cimt_llm/` mean a prior CIMT LLM
 run can be reused without paying again. Internally this is stages **5a–5e** on
@@ -1983,7 +2084,7 @@ if isinstance(summary, dict):
     ),
     md(
         """
-## 6. Reading the run
+## 7. Reading the run
 
 Findings summarise gold argument structure (when present), clusters, top
 concerns by format, and which analytic decisions move the topic-gap $\\ell$.
@@ -2039,7 +2140,7 @@ display(Markdown(md_text))
     ),
     md(
         """
-## 7. Outlook
+## 8. Outlook
 
 Multilogue owns the shared stages above. A formats-style consumer package still
 keeps: PDF/docx Access, study prompts and experience coding, researcher-edited
