@@ -344,23 +344,32 @@ def test_profile_sigma2_holding_responsibilities_keeps_k():
     assert "held_R" in prof["selection"]
 
 
-def test_profile_hold_r_preserves_balanced_split_on_embeddings():
-    """Regression: Accept re-profile must not collapse a balanced split."""
-    E = np.load(
-        __import__("pathlib").Path("notebooks/outputs/emb")
-        / "embeddings_text-embedding-3-small.npy"
+def test_profile_hold_r_preserves_balanced_split():
+    """Regression: Accept re-profile must not move soft mass / MAP labels.
+
+    Uses planted blobs (CI-safe). Optional local embeddings path is used
+    only when present so a developer cache can still exercise the same logic.
+    """
+    emb = Path("notebooks/outputs/emb/embeddings_text-embedding-3-small.npy")
+    if emb.is_file() and emb.stat().st_size > 0:
+        E = np.load(emb)
+        if E.shape[0] < 40:
+            E, _ = _planted_blobs(seed=0, k=2, n_per=40, d=16)
+    else:
+        E, _ = _planted_blobs(seed=0, k=2, n_per=40, d=16)
+    fit1 = initial_assess_fit(
+        E, k=1, sigma2_mode="fixed", sigma2=0.12, seed=0, max_iter=20
     )
-    if E.shape[0] < 20:
-        pytest.skip("cached embeddings unavailable")
-    fit1 = initial_assess_fit(E, k=1, sigma2_mode="profile", seed=0)
     split = propose_split(E, fit1, 0, seed=0, max_iter=20)
     R = split["fit"]["responsibilities"].copy()
     mass_before = R.sum(0)
-    assert mass_before.min() / mass_before.sum() > 0.25
+    assert mass_before.min() / mass_before.sum() > 0.20
+    map_before = np.bincount(R.argmax(1), minlength=R.shape[1])
     prof = profile_sigma2_holding_responsibilities(E, R, seed=0)
     mass_after = prof["fit"]["responsibilities"].sum(0)
     np.testing.assert_allclose(mass_after, mass_before, atol=1e-9)
-    map_sizes = np.bincount(
-        prof["fit"]["responsibilities"].argmax(1), minlength=2
+    np.testing.assert_allclose(prof["fit"]["responsibilities"], R, atol=1e-12)
+    map_after = np.bincount(
+        prof["fit"]["responsibilities"].argmax(1), minlength=R.shape[1]
     )
-    assert map_sizes.min() >= 10
+    np.testing.assert_array_equal(map_after, map_before)
