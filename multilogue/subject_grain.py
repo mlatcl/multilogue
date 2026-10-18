@@ -13,8 +13,11 @@ import numpy as np
 import pandas as pd
 
 from .mppca import (
+    DEFAULT_TOPIC_SIGMA2,
+    DEFAULT_TOPIC_SIGMA2_GRID,
     fit_weighted_ppca,
     mppca_fit,
+    profile_topic_sigma2,
     responsibilities_to_labels,
     example_phrases_for_soft_topics,
     topic_fit_diagnostics,
@@ -27,25 +30,27 @@ def resolve_k_multiverse(
     primary_k: int,
     k_multiverse: str | Sequence[int] | None = "hold",
 ) -> list[int]:
-    """Resolve Address multiverse \(k\) levels from a lock policy.
+    """Resolve Address multiverse (k) levels from a lock policy.
 
     Parameters
     ----------
     primary_k :
-        Locked leaf / primary topic count (must be >= 2).
+        Locked leaf / primary topic count (must be >= 1; Assess may start at 1).
     k_multiverse :
         ``\"hold\"`` / ``None`` → ``[primary_k]`` only;
-        ``\"pm1\"`` → ``{k-1, k, k+1}`` clipped so every level is >= 2;
-        an explicit sequence → sorted unique ints (each clipped to >= 2).
+        ``\"pm1\"`` → ``{k-1, k, k+1}`` clipped so every level is >= 1
+        (and >= 2 when ``primary_k >= 2``, matching prior Address demos);
+        an explicit sequence → sorted unique ints (each clipped to >= 1).
     """
     k = int(primary_k)
-    if k < 2:
-        raise ValueError(f"primary_k must be >= 2, got {primary_k}")
+    if k < 1:
+        raise ValueError(f"primary_k must be >= 1, got {primary_k}")
+    floor = 1 if k == 1 else 2
     if k_multiverse is None or k_multiverse == "hold":
         return [k]
     if k_multiverse == "pm1":
-        return sorted({max(2, k - 1), k, k + 1})
-    levels = sorted({max(2, int(x)) for x in k_multiverse})
+        return sorted({max(floor, k - 1), k, k + 1})
+    levels = sorted({max(floor, int(x)) for x in k_multiverse})
     if not levels:
         raise ValueError("k_multiverse sequence must be non-empty")
     return levels
@@ -88,13 +93,13 @@ def lock_subject_grain(
 ) -> dict[str, Any]:
     """Build the locked subject-grain artefact for Address / run manifests.
 
-    Does **not** choose \(k\) by maximising a study metric. Call after the
+    Does **not** choose *k* by maximising a study metric. Call after the
     analyst accepts the catalogue (Assess); Address reads ``primary_k`` and
     ``k_multiverse`` only.
     """
     k = int(primary_k)
-    if k < 2:
-        raise ValueError(f"primary_k must be >= 2, got {primary_k}")
+    if k < 1:
+        raise ValueError(f"primary_k must be >= 1, got {primary_k}")
     levels = resolve_k_multiverse(k, k_multiverse)
     fp = fit_fingerprint(
         responsibilities, means, labels=labels
@@ -153,6 +158,33 @@ def _fit_from_responsibilities(
     n, k = R.shape
     pi = R.mean(axis=0)
     n_iter = 0
+    max_iter = max(0, int(max_iter))
+    if max_iter == 0:
+        component_fits = [fit_weighted_ppca(X, R[:, j], sigma2) for j in range(k)]
+        means = np.vstack([fit["mu"] for fit in component_fits])
+        if normalize_means:
+            means = _l2_normalize_rows(means)
+        return {
+            "responsibilities": R,
+            "means": means,
+            "pi": pi,
+            "sigma2": float(sigma2),
+            "n_iter": 0,
+            "component_fits": component_fits,
+            "seed": int(seed),
+            "k": int(k),
+            "collapsed": bool(
+                topic_fit_diagnostics(
+                    {
+                        "responsibilities": R,
+                        "means": means,
+                        "sigma2": sigma2,
+                        "k": k,
+                        "component_fits": component_fits,
+                    }
+                )["collapsed"]
+            ),
+        }
     for n_iter in range(1, max_iter + 1):
         component_fits = [fit_weighted_ppca(X, R[:, j], sigma2) for j in range(k)]
         log_lik = np.column_stack(
@@ -185,6 +217,107 @@ def _fit_from_responsibilities(
             {"responsibilities": R, "means": means, "sigma2": sigma2, "k": k,
              "component_fits": component_fits}
         )["collapsed"]),
+    }
+
+
+def initial_assess_fit(
+    X: np.ndarray,
+    *,
+    k: int = 1,
+    sigma2_mode: str = "profile",
+    sigma2: float | None = None,
+    seed: int = 0,
+    max_iter: int = 50,
+    n_init: int = 10,
+) -> dict[str, Any]:
+    """Fit the Assess entry mixture (CIP-000A: default ``k=1``).
+
+    Parameters
+    ----------
+    sigma2_mode :
+        ``\"profile\"`` — CIP-0017 softest non-collapse grid (ignores ``sigma2``
+        unless profiling is skipped for ``k`` edge cases).
+        ``\"fixed\"`` — use ``sigma2`` or :data:`DEFAULT_TOPIC_SIGMA2`.
+    """
+    X = np.asarray(X, float)
+    k = int(k)
+    if k < 1:
+        raise ValueError(f"k must be >= 1, got {k}")
+    mode = str(sigma2_mode or "profile").strip().lower()
+    if mode not in {"profile", "fixed"}:
+        raise ValueError(f"sigma2_mode must be 'profile' or 'fixed', got {sigma2_mode!r}")
+    if mode == "fixed":
+        s2 = float(sigma2) if sigma2 is not None else float(DEFAULT_TOPIC_SIGMA2)
+        fit = mppca_fit(
+            X, k, sigma2=s2, seed=seed, max_iter=max_iter, n_init=n_init
+        )
+        fit["sigma2_selection"] = {"selection": "fixed", "curve": []}
+        return fit
+    prof = profile_topic_sigma2(
+        X, k, seed=seed, max_iter=max_iter, n_init=n_init
+    )
+    fit = prof["fit"]
+    fit["sigma2_selection"] = {
+        "selection": prof["selection"],
+        "curve": prof["curve"],
+        "min_map": prof.get("min_map"),
+    }
+    return fit
+
+
+def profile_sigma2_holding_responsibilities(
+    X: np.ndarray,
+    R: np.ndarray,
+    *,
+    grid: Sequence[float] | None = None,
+    seed: int = 0,
+    max_iter: int = 30,
+) -> dict[str, Any]:
+    """CIP-0017-style σ² pick without destroying interactive soft assignments.
+
+    For each grid value, run full-mixture EM from the *current* ``R``, then
+    choose the softest non-collapsing floor (largest σ² among viable fits).
+    """
+    X = np.asarray(X, float)
+    R0 = np.asarray(R, float)
+    if R0.ndim != 2 or R0.shape[0] != X.shape[0]:
+        raise ValueError("R must be (n, k) aligned with X")
+    k = int(R0.shape[1])
+    grid_vals = list(grid) if grid is not None else list(DEFAULT_TOPIC_SIGMA2_GRID)
+    min_map = 1 if k == 1 else max(2, int(np.ceil(0.5 * k)))
+    curve: list[dict[str, Any]] = []
+    fits: dict[float, dict[str, Any]] = {}
+    for s2 in sorted(float(s) for s in grid_vals):
+        fit = _fit_from_responsibilities(
+            X, R0.copy(), s2, seed=seed, max_iter=max_iter
+        )
+        diag = topic_fit_diagnostics(fit)
+        curve.append(diag)
+        fits[s2] = fit
+    viable = [
+        d
+        for d in curve
+        if (not d["collapsed"])
+        and int(d["n_map"]) >= min_map
+        and float(d["max_mean_cos"]) <= 0.99
+    ]
+    if viable:
+        best = max(viable, key=lambda d: float(d["sigma2"]))
+        selection = "softest_noncollapse_held_R"
+    else:
+        best = max(
+            curve,
+            key=lambda d: (int(d["n_map"]), -float(d["max_mean_cos"])),
+        )
+        selection = "fallback_least_collapsed_held_R"
+    s2_star = float(best["sigma2"])
+    out = fits[s2_star]
+    return {
+        "sigma2": s2_star,
+        "fit": out,
+        "curve": curve,
+        "selection": selection,
+        "min_map": min_map,
     }
 
 

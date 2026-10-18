@@ -320,7 +320,12 @@ def profile_topic_sigma2(
     grid_vals = list(grid) if grid is not None else list(DEFAULT_TOPIC_SIGMA2_GRID)
     if not grid_vals:
         raise ValueError("topic σ² grid must be non-empty")
-    min_map = max(2, int(np.ceil(min_map_fraction * k)))
+    # k=1 (CIP-000A Assess entry): a single MAP topic is success, not collapse.
+    min_map = (
+        1
+        if int(k) == 1
+        else max(2, int(np.ceil(min_map_fraction * k)))
+    )
 
     curve: list[dict[str, float | int | bool]] = []
     fits: dict[float, dict[str, Any]] = {}

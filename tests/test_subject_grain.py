@@ -10,7 +10,9 @@ from multilogue.experiment import run_formats_complexity_demo
 from multilogue.mppca import mppca_fit, responsibilities_to_labels
 from multilogue.subject_grain import (
     fit_fingerprint,
+    initial_assess_fit,
     lock_subject_grain,
+    profile_sigma2_holding_responsibilities,
     propose_merge,
     propose_split,
     resolve_k_multiverse,
@@ -46,6 +48,8 @@ def test_resolve_k_multiverse_hold_and_pm1():
     assert resolve_k_multiverse(10, None) == [10]
     assert resolve_k_multiverse(10, "pm1") == [9, 10, 11]
     assert resolve_k_multiverse(2, "pm1") == [2, 3]
+    assert resolve_k_multiverse(1, "pm1") == [1, 2]
+    assert resolve_k_multiverse(1, "hold") == [1]
     assert resolve_k_multiverse(8, [5, 8, 12]) == [5, 8, 12]
 
 
@@ -253,3 +257,37 @@ def test_formats_demo_k_grid_one_factor_sweep(tmp_path: Path):
     assert summary["resolution_k_sweep"] == len(sweep)
     # Lock records explicit levels from k_grid
     assert summary["subject_grain"]["k_multiverse"] == [3, 4, 5]
+
+
+def test_initial_assess_fit_k1_profile_and_fixed():
+    X, _ = _planted_blobs(seed=11, k=2, n_per=25)
+    fit_p = initial_assess_fit(X, k=1, sigma2_mode="profile", seed=11, max_iter=20)
+    assert fit_p["k"] == 1
+    assert fit_p["responsibilities"].shape == (X.shape[0], 1)
+    assert fit_p["sigma2"] > 0
+    assert fit_p["sigma2_selection"]["selection"]
+    fit_f = initial_assess_fit(
+        X, k=1, sigma2_mode="fixed", sigma2=0.15, seed=11, max_iter=15
+    )
+    assert fit_f["k"] == 1
+    assert fit_f["sigma2"] == pytest.approx(0.15)
+
+
+def test_propose_merge_preview_iters_cheaper_than_accept():
+    X, _ = _planted_blobs(seed=12, k=3)
+    fit = mppca_fit(X, k=3, sigma2=0.12, seed=12, max_iter=25)
+    cheap = propose_merge(X, fit, [0, 1], seed=12, refit=True, max_iter=1)
+    full = propose_merge(X, fit, [0, 1], seed=12, refit=True, max_iter=30)
+    assert cheap["fit"]["k"] == full["fit"]["k"] == 2
+    assert int(cheap["fit"]["n_iter"]) <= int(full["fit"]["n_iter"])
+
+
+def test_profile_sigma2_holding_responsibilities_keeps_k():
+    X, _ = _planted_blobs(seed=13, k=3)
+    fit = mppca_fit(X, k=3, sigma2=0.08, seed=13, max_iter=25)
+    R = fit["responsibilities"].copy()
+    prof = profile_sigma2_holding_responsibilities(X, R, seed=13, max_iter=10)
+    assert prof["fit"]["k"] == 3
+    assert prof["fit"]["responsibilities"].shape == R.shape
+    assert prof["sigma2"] > 0
+    assert "held_R" in prof["selection"]

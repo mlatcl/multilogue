@@ -18,6 +18,7 @@ from .config import dump_json
 from .mppca import example_phrases_for_soft_topics
 from .subject_grain import (
     lock_subject_grain,
+    profile_sigma2_holding_responsibilities,
     propose_merge,
     propose_split,
     subject_grain_diagnostics,
@@ -93,6 +94,9 @@ class SubjectGrainShell:
         name_after_action: bool = False,
         name_initial: bool = False,
         k_multiverse: str | Sequence[int] | None = "hold",
+        sigma2_mode: str = "fixed",
+        em_max_iter_accept: int = 30,
+        em_max_iter_preview: int = 1,
     ) -> None:
         from .clients import (
             LABEL_MODEL_CHOICES,
@@ -100,6 +104,14 @@ class SubjectGrainShell:
             TOPIC_LABEL_SYSTEM,
         )
 
+        mode = str(sigma2_mode or "fixed").strip().lower()
+        if mode not in {"fixed", "profile"}:
+            raise ValueError(
+                f"sigma2_mode must be 'fixed' or 'profile', got {sigma2_mode!r}"
+            )
+        self.sigma2_mode = mode
+        self.em_max_iter_accept = max(1, int(em_max_iter_accept))
+        self.em_max_iter_preview = max(0, int(em_max_iter_preview))
         self.X = np.asarray(X, dtype=float)
         self.fit = _snapshot_fit(fit)
         if self.X.shape[0] != self.fit["responsibilities"].shape[0]:
@@ -350,7 +362,12 @@ class SubjectGrainShell:
         source_labels = [str(s["label"]) for s in sources]
         self._push_undo()
         out = propose_merge(
-            self.X, self.fit, ids, refit=refit, seed=self.seed
+            self.X,
+            self.fit,
+            ids,
+            refit=refit,
+            seed=self.seed,
+            max_iter=self.em_max_iter_accept,
         )
         old_to_new: dict[int, int] = out["old_to_new"]
         new_labels: dict[int, str] = {}
@@ -434,8 +451,14 @@ class SubjectGrainShell:
             sources.append(entry)
         if any(s.get("component_fit") is None for s in sources):
             return None
+        preview_iters = int(self.em_max_iter_preview)
         out = propose_merge(
-            self.X, self.fit, ids, refit=refit, seed=self.seed
+            self.X,
+            self.fit,
+            ids,
+            refit=preview_iters > 0 if refit else False,
+            seed=self.seed,
+            max_iter=max(1, preview_iters),
         )
         merged_id = int(out["dirty"][0])
         new_cfs = list(out["fit"].get("component_fits") or [])
@@ -513,6 +536,7 @@ class SubjectGrainShell:
             n_children=n_children,
             seed=self.seed,
             mass_threshold=mass_threshold,
+            max_iter=self.em_max_iter_accept,
         )
         n_ch = int(n_children)
         new_labels: dict[int, str] = {}
@@ -577,12 +601,57 @@ class SubjectGrainShell:
         return out
 
     def accept_proposal(self) -> bool:
-        """Mark the pending split as accepted (keeps geometry + names)."""
+        """Accept pending proposal; optionally re-profile σ² holding R."""
         if self.pending_proposal is None:
             return False
+        if self.sigma2_mode == "profile":
+            try:
+                self.reprofile_sigma2()
+            except Exception as exc:  # noqa: BLE001 — keep geometry; surface later
+                self.action_history.append(
+                    {
+                        "action": "profile_sigma2_holding_R",
+                        "error": str(exc),
+                        "k": self.k,
+                    }
+                )
         self.pending_proposal["accepted"] = True
         self.pending_proposal = None
         return True
+
+    def reprofile_sigma2(self) -> dict[str, Any]:
+        """CIP-0017 softest non-collapse σ² on the current soft assignments.
+
+        Holds responsibilities fixed as the EM warm-start; updates ``self.fit``.
+        Does not clear a pending proposal.
+        """
+        prof = profile_sigma2_holding_responsibilities(
+            self.X,
+            self.responsibilities,
+            seed=self.seed,
+            max_iter=self.em_max_iter_accept,
+        )
+        self.fit = _snapshot_fit(prof["fit"])
+        self.action_history.append(
+            {
+                "action": "profile_sigma2_holding_R",
+                "k": self.k,
+                "sigma2": float(self.fit.get("sigma2", float("nan"))),
+                "ll": float(self.fit.get("ll", float("nan"))),
+                "selection": prof.get("selection"),
+            }
+        )
+        self.locked = None
+        return prof
+
+    def set_sigma2(self, value: float) -> None:
+        """Set fixed topic noise on the fit (no EM). Used by the σ² widget."""
+        s2 = float(value)
+        if not np.isfinite(s2) or s2 <= 0.0:
+            raise ValueError(f"sigma2 must be a positive finite float, got {value!r}")
+        self.fit["sigma2"] = s2
+        self.sigma2_mode = "fixed"
+        self.locked = None
 
     def name_proposal(self, label_work: LabelWork | None = None) -> list[int]:
         """LLM-name only the children of the pending split proposal."""
@@ -697,6 +766,9 @@ class SubjectGrainShell:
                 "labels": {str(i): self.labels.get(i, "") for i in range(self.k)},
                 "parent_of": {str(i): v for i, v in self.parent_of.items()},
                 "dirty_remaining": sorted(self.dirty),
+                "sigma2_mode": self.sigma2_mode,
+                "em_max_iter_accept": self.em_max_iter_accept,
+                "em_max_iter_preview": self.em_max_iter_preview,
             },
         )
         self.locked = artefact
@@ -875,6 +947,33 @@ class SubjectGrainShell:
             description="Label model",
             style={"description_width": "90px"},
         )
+        sigma2_mode_dd = W.Dropdown(
+            options=[("fixed", "fixed"), ("profile", "profile")],
+            value=self.sigma2_mode,
+            description="σ² mode",
+            style={"description_width": "90px"},
+        )
+        sigma2_val = W.FloatText(
+            value=float(self.fit.get("sigma2") or 0.12),
+            description="σ²",
+            style={"description_width": "90px"},
+            disabled=(self.sigma2_mode == "profile"),
+        )
+        em_accept = W.BoundedIntText(
+            value=self.em_max_iter_accept,
+            min=1,
+            max=500,
+            description="EM accept",
+            style={"description_width": "90px"},
+        )
+        em_preview = W.BoundedIntText(
+            value=self.em_max_iter_preview,
+            min=0,
+            max=50,
+            description="EM preview",
+            style={"description_width": "90px"},
+        )
+        btn_reprofile = W.Button(description="Re-profile σ² now")
         status = W.HTML()
         proposal_box = W.HTML()
         fig_out = W.Output()
@@ -1003,11 +1102,21 @@ class SubjectGrainShell:
                 )
             else:
                 pend = f"pending {prop.get('kind', '?')}"
+            n_iter = self.fit.get("n_iter", "—")
+            s2 = self.fit.get("sigma2", float("nan"))
+            try:
+                s2_txt = f"{float(s2):.4g}"
+            except (TypeError, ValueError):
+                s2_txt = str(s2)
             status.value = (
                 f"<b>k={self.k}</b> · dirty={sorted(self.dirty) or '—'} · "
                 f"undo={len(self._undo_stack)} · "
                 f"locked={'yes' if self.locked else 'no'} · "
-                f"proposal={pend} · view=topic {focus}"
+                f"proposal={pend} · view=topic {focus} · "
+                f"σ²={s2_txt} ({self.sigma2_mode}) · "
+                f"EM n_iter={n_iter} · "
+                f"budget accept={self.em_max_iter_accept}/"
+                f"preview={self.em_max_iter_preview}"
             )
             proposal_box.value = _proposal_html()
             with fig_out:
@@ -1213,7 +1322,67 @@ class SubjectGrainShell:
                 status.value = "<span style='color:#a00'>No pending proposal.</span>"
                 return
             self._merge_preview_ids = []
-            status.value = "Proposal accepted."
+            sigma2_val.value = float(self.fit.get("sigma2") or sigma2_val.value)
+            status.value = (
+                f"Proposal accepted · σ²={float(self.fit.get('sigma2', float('nan'))):.4g} "
+                f"({self.sigma2_mode})"
+            )
+            _refresh_outputs(prefer_focus=_current_focus())
+
+        def _on_sigma2_mode(change) -> None:
+            if change.get("name") != "value":
+                return
+            mode = str(change.get("new") or "fixed")
+            if mode not in {"fixed", "profile"}:
+                return
+            self.sigma2_mode = mode
+            sigma2_val.disabled = mode == "profile"
+            if mode == "fixed":
+                try:
+                    self.set_sigma2(float(sigma2_val.value))
+                except Exception:  # noqa: BLE001
+                    pass
+            _redraw_fit(_current_focus())
+
+        def _on_sigma2_val(change) -> None:
+            if change.get("name") != "value":
+                return
+            if self.sigma2_mode != "fixed":
+                return
+            try:
+                self.set_sigma2(float(change.get("new")))
+            except Exception as exc:  # noqa: BLE001
+                status.value = f"<span style='color:#a00'>σ²: {exc}</span>"
+                return
+            _redraw_fit(_current_focus())
+
+        def _on_em_accept(change) -> None:
+            if change.get("name") != "value":
+                return
+            self.em_max_iter_accept = max(1, int(change.get("new") or 1))
+            _redraw_fit(_current_focus())
+
+        def _on_em_preview(change) -> None:
+            if change.get("name") != "value":
+                return
+            self.em_max_iter_preview = max(0, int(change.get("new") or 0))
+            if len(getattr(self, "_merge_preview_ids", []) or []) >= 2:
+                _redraw_fit(self._merge_preview_ids[0])
+            else:
+                _redraw_fit(_current_focus())
+
+        def _on_reprofile(_):
+            try:
+                self.reprofile_sigma2()
+            except Exception as exc:  # noqa: BLE001
+                status.value = (
+                    f"<span style='color:#a00'>Re-profile σ² failed: {exc}</span>"
+                )
+                return
+            sigma2_val.value = float(self.fit.get("sigma2") or sigma2_val.value)
+            status.value = (
+                f"Re-profiled σ² → {float(self.fit.get('sigma2', float('nan'))):.4g}"
+            )
             _refresh_outputs(prefer_focus=_current_focus())
 
         def _on_name(_):
@@ -1282,10 +1451,28 @@ class SubjectGrainShell:
         btn_name_all.on_click(_on_name_catalogue)
         btn_apply_label.on_click(_on_apply_label)
         btn_lock.on_click(_on_lock)
+        btn_reprofile.on_click(_on_reprofile)
         split_dd.observe(_on_focus_change, names="value")
         merge_sel.observe(_on_merge_sel_change, names="value")
+        sigma2_mode_dd.observe(_on_sigma2_mode, names="value")
+        sigma2_val.observe(_on_sigma2_val, names="value")
+        em_accept.observe(_on_em_accept, names="value")
+        em_preview.observe(_on_em_preview, names="value")
 
         controls = W.HBox([merge_sel, split_dd])
+        grain_cfg = W.VBox(
+            [
+                W.HTML(
+                    "<b>Grain / noise</b> — Assess starts at one soft bag then "
+                    "split. Live merge preview uses the EM preview budget; "
+                    "Propose uses the accept budget. Profile σ² only on Accept "
+                    "(or Re-profile now), never on preview."
+                ),
+                W.HBox(
+                    [sigma2_mode_dd, sigma2_val, btn_reprofile, em_accept, em_preview]
+                ),
+            ]
+        )
         label_cfg = W.VBox(
             [
                 W.HTML(
@@ -1311,7 +1498,16 @@ class SubjectGrainShell:
             ]
         )
         ui = W.VBox(
-            [status, proposal_box, label_cfg, controls, buttons, fig_out, cat_out]
+            [
+                status,
+                proposal_box,
+                grain_cfg,
+                label_cfg,
+                controls,
+                buttons,
+                fig_out,
+                cat_out,
+            ]
         )
         _refresh_outputs()
         return ui

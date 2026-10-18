@@ -3,7 +3,7 @@ author: "Neil Lawrence"
 created: "2026-10-18"
 id: "000A"
 last_updated: "2026-10-18"
-status: "Accepted"
+status: "Implemented"
 compressed: false
 related_requirements: ["000A"]
 related_cips: ["0009", "0017"]
@@ -24,8 +24,8 @@ title: "Assess grain defaults: k=1, EM policy, σ² fix-or-fit"
 
 - [x] Proposed - Initial idea documented
 - [x] Accepted - Approved, ready to start work
-- [ ] In Progress - Actively being implemented
-- [ ] Implemented - Work complete, awaiting verification
+- [x] In Progress - Actively being implemented
+- [x] Implemented - Work complete, awaiting verification
 - [ ] Closed - Verified and complete
 - [ ] Rejected - Will not be implemented
 - [ ] Deferred - Postponed
@@ -176,11 +176,11 @@ multiverse remain **Address** under the lock.
 
 ## Implementation Status
 
-- [ ] Default Assess entry at \(k{=}1\) (builder + helpers)
-- [ ] EM preview vs accept budgets wired through shell
-- [ ] \(\sigma^2\) fix/profile controls + lock metadata
-- [ ] Tests
-- [ ] Notebooks regenerated
+- [x] Default Assess entry at \(k{=}1\) (builder + helpers)
+- [x] EM preview vs accept budgets wired through shell
+- [x] \(\sigma^2\) fix/profile controls + lock metadata
+- [x] Tests
+- [x] Notebooks regenerated
 
 ## References
 

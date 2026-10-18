@@ -636,8 +636,9 @@ not a format-gap maximisation.
 
 Choosing how many subjects belong in the catalogue is closer to “what is the
 human grain of this corpus?” than to “which quote threshold?”. Following
-Bishop & Tipping’s hierarchical visualisation (TPAMI 1998), the analyst sees
-**both**:
+Bishop & Tipping’s hierarchical visualisation (TPAMI 1998), Assess **starts at
+one soft bag** ($k{=}1$) and grows grain by **split** (CIP-000A). The analyst
+sees **both**:
 
 1. **Geometry** — the **local** $U_q$ plane of the topic you are considering
    splitting (not a global PCA of the whole embedding cloud). Soft mass on
@@ -649,6 +650,10 @@ Neither view replaces the other. Merge / split / keep is human feedback — not
 automatic maximisation of a study metric $\\ell$. Under *assess without the
 question*, this loop is Assess; lenses, format gap, and multiverse under a
 **locked** catalogue are Address.
+
+**Noise policy:** $\\sigma^2$ may be **fixed** or **profiled** (CIP-0017 grid).
+Live merge preview never re-profiles; Accept can. EM budgets separate cheap
+preview from Propose/Accept.
 
 **Catalogue first:** the shell names every topic once (LLM) so the table shows
 real subject labels — not ``topic 0``. The widget has a **label prompt** text
@@ -663,16 +668,25 @@ likewise a *proposal*: child means in the **parent** $U_q$. Accept when happy.
     code(
         """
 import os
+from multilogue.subject_grain import initial_assess_fit
 from multilogue.subject_grain_shell import SubjectGrainShell, ipywidgets_available
 
+# CIP-000A: Assess entry is one soft topic; split grows the catalogue.
+# Earlier multi-k fit above remains a soft-throughout teaching view.
+grain_fit = initial_assess_fit(E, k=1, sigma2_mode="profile", seed=0)
 # label_client= lets the widget Textarea / model Dropdown rebuild label_work
 shell = SubjectGrainShell(
-    E, fit, phrases, phrase_col="phrase", seed=0,
+    E, grain_fit, phrases, phrase_col="phrase", seed=0,
     label_client=client,
     label_system=TOPIC_LABEL_SYSTEM,
     label_prompt=TOPIC_LABEL_PROMPT,
     label_model=models["label"],
     name_initial=True,
+    sigma2_mode="profile",
+)
+print(
+    f"Assess entry k={shell.k}, σ²={shell.fit['sigma2']:.4g} "
+    f"(mode={shell.sigma2_mode})"
 )
 print("initial catalogue labels:", {j: shell.labels[j] for j in shell.topic_ids()})
 # Widgets for live try-combinations; CI / smoke force the scripted path.
@@ -682,17 +696,38 @@ use_widgets = (
 )
 if use_widgets:
     print(
-        "Layer B: select merge candidates (live merged U_q) / Propose split → Accept"
+        "Layer B: start at k=1 → Propose split / merge preview → Accept"
     )
     shell.display()
 else:
     print("Layer A scripted path (no widgets / MULTILOGUE_SUBJECT_GRAIN_WIDGETS=0)")
     display(shell.catalogue())
-    # Local U_q of the topic under split consideration (Bishop–Tipping channel)
+    # Local U_q of the single bag (Bishop–Tipping channel)
     focus = 0
     shell.fit_view(focus=focus, path=FIG / "03_topic_fit_view.png", show=True)
+    # Grow grain: propose split from k=1, then accept
+    parent = 0
+    parent_name = shell.labels.get(parent, f"topic {parent}")
+    shell.split(parent)
+    print(
+        "proposed split of", repr(parent_name),
+        "→ children", shell.proposed_topic_ids(),
+        "parent_of", {c: shell.parent_of.get(c) for c in shell.proposed_topic_ids()},
+        "pending=", shell.pending_proposal is not None,
+    )
+    shell.fit_view(
+        focus=shell.proposed_topic_ids()[0],
+        path=FIG / "03_proposed_split.png",
+        show=True,
+    )
+    display(shell.catalogue())
+    print("child labels after split:", {
+        c: shell.labels[c] for c in shell.proposed_topic_ids()
+    })
+    shell.accept_proposal()
+    print("accepted; k =", shell.k, "parent_of =", shell.parent_of)
     # Demo propose-merge (merged U_q + originals) then undo
-    if shell.k >= 3:
+    if shell.k >= 2:
         shell.merge([0, 1])
         mid = int(shell.pending_proposal["merged_id"])
         print(
@@ -706,28 +741,6 @@ else:
         display(shell.catalogue())
         shell.undo()
         print("after undo: k =", shell.k)
-    # Demo proposed split: parent U_q + child means, lineage in catalogue
-    if shell.k >= 2:
-        parent = 0
-        parent_name = shell.labels.get(parent, f"topic {parent}")
-        shell.split(parent)
-        print(
-            "proposed split of", repr(parent_name),
-            "→ children", shell.proposed_topic_ids(),
-            "parent_of", {c: shell.parent_of.get(c) for c in shell.proposed_topic_ids()},
-            "pending=", shell.pending_proposal is not None,
-        )
-        shell.fit_view(
-            focus=shell.proposed_topic_ids()[0],
-            path=FIG / "03_proposed_split.png",
-            show=True,
-        )
-        display(shell.catalogue())
-        print("child labels after split:", {
-            c: shell.labels[c] for c in shell.proposed_topic_ids()
-        })
-        shell.accept_proposal()
-        print("accepted; parent_of =", shell.parent_of)
     lock = shell.lock(
         path=root / "clusters" / "subject_grain_lock.json",
         k_multiverse="hold",
