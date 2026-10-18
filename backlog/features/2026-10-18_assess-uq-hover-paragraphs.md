@@ -1,7 +1,7 @@
 ---
 id: "2026-10-18_assess-uq-hover-paragraphs"
 title: "Hover paragraph text on Assess local U_q points"
-status: "Proposed"
+status: "Completed"
 priority: "Medium"
 created: "2026-10-18"
 last_updated: "2026-10-18"
@@ -31,30 +31,23 @@ saved PNG artefacts and non-notebook report paths.
 
 ## Acceptance Criteria
 
-- [ ] Hovering a point in the Assess shell shows the phrase (and truncated
+- [x] Hovering a point in the Assess shell shows the phrase (and truncated
       paragraph / unit text when available)
-- [ ] Covers `topic_fit_view`, proposed-split, and proposed-merge panels in
+- [x] Covers `topic_fit_view`, proposed-split, and proposed-merge panels in
       the widget path
-- [ ] Matplotlib save/export path unchanged (no Plotly required for CI / report
+- [x] Matplotlib save/export path unchanged (no Plotly required for CI / report
       figures)
-- [ ] Plotly (or chosen stack) is an optional notebook extra, not a hard core
+- [x] Plotly (or chosen stack) is an optional notebook extra, not a hard core
       dependency
-- [ ] Smoke test or thin unit coverage for hover-payload construction (text
+- [x] Smoke test or thin unit coverage for hover-payload construction (text
       aligned to point indices)
 
 ## Implementation Notes
 
-- Current stack: `multilogue/viz.py` + matplotlib; `notebook` extra is
-  ipywidgets + matplotlib only — no Plotly yet.
-- Prefer Plotly for Jupyter hover; pass `phrases` / optional longer text column
-  through `SubjectGrainShell.fit_view` → viz helpers.
-- Keep Bishop–Tipping semantics: project all points into the focus component’s
-  plane; ink/opacity still ∝ soft mass; hover text is a reading aid, not a
-  harden view.
-- Truncate long paragraphs in the tooltip; full text can stay in the catalogue
-  table.
-- No new CIP unless the dependency / dual-backend design needs a longer HOW;
-  this task extends CIP-0009 Assess UX (with CIP-000A grain-shell context).
+- `hover_phrase_texts` / `_plotly_uq_figure` in `multilogue/viz.py`
+- Shell `hover_texts()` prefers paragraph/text columns when present
+- Widget `fig_out` displays Plotly when available; falls back to matplotlib
+- `path=` always forces matplotlib PNG export
 
 ## Related
 
@@ -68,3 +61,7 @@ saved PNG artefacts and non-notebook report paths.
 
 Task created (Proposed) after fixed-\(\sigma^2\) Assess entry validated in
 notebook 03.
+
+### 2026-10-18
+
+Implemented Plotly hover path; backlog Completed.

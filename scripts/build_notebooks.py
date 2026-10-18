@@ -664,6 +664,8 @@ pushes the new prompt into the live labelling work and re-labels every topic.
 Select ≥2 topics in **Merge** to preview the *merged* $U_q$ with the originals
 listed (means + ellipses); **Propose merge** then Accept (or Undo). A split is
 likewise a *proposal*: child means in the **parent** $U_q$. Accept when happy.
+Hover a point in the live panel to read the phrase / paragraph (Plotly;
+``pip install multilogue[notebook]``).
 """
     ),
     code(

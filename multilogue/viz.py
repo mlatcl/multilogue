@@ -5,7 +5,7 @@ Requires matplotlib (``pip install multilogue[report]`` or ``[dev]``).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -29,6 +29,190 @@ def tidy(ax) -> None:
         ax.spines[s].set_visible(False)
     ax.tick_params(colors=MUTED, labelsize=9, length=0)
     ax.set_axisbelow(True)
+
+
+def plotly_available() -> bool:
+    """True when Plotly is importable (``multilogue[notebook]`` / ``[dev]``)."""
+    try:
+        import plotly.graph_objects  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def hover_phrase_texts(
+    phrases: Sequence[Any] | None,
+    *,
+    max_chars: int = 240,
+) -> list[str]:
+    """Build HTML-safe hover strings aligned 1:1 with scatter points.
+
+    Collapses whitespace and truncates long paragraphs so tooltips stay readable.
+    """
+    import html
+
+    if phrases is None:
+        return []
+    out: list[str] = []
+    for p in phrases:
+        s = " ".join(str(p).split())
+        if not s:
+            s = "—"
+        if len(s) > max_chars:
+            s = s[: max_chars - 1] + "…"
+        out.append(html.escape(s))
+    return out
+
+
+def _want_plotly_hover(
+    *,
+    interactive: bool | None,
+    path: str | Path | None,
+    show: bool,
+    phrases: Sequence[Any] | None,
+) -> bool:
+    """Use Plotly when hovering is requested and export path is not set."""
+    if path is not None:
+        return False
+    if phrases is None:
+        return False
+    if not plotly_available():
+        return False
+    if interactive is True:
+        return True
+    if interactive is False:
+        return False
+    # interactive is None: prefer Plotly for live show in notebooks
+    return bool(show)
+
+
+def _ellipse_polyline(
+    center: np.ndarray,
+    cov2: np.ndarray,
+    *,
+    n: int = 64,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Sample a 1-SD ellipse in the plane as closed polylines."""
+    c = np.asarray(center, float).ravel()[:2]
+    C = np.asarray(cov2, float)
+    if c.size < 2 or C.shape != (2, 2) or not np.isfinite(C).all():
+        return None
+    try:
+        vals, vecs = np.linalg.eigh(C)
+    except np.linalg.LinAlgError:
+        return None
+    vals = np.clip(vals, 0.0, None)
+    if float(vals.sum()) <= 0:
+        return None
+    t = np.linspace(0.0, 2.0 * np.pi, n + 1)
+    circ = np.column_stack([np.cos(t), np.sin(t)])
+    axes = vecs @ np.diag(np.sqrt(vals))
+    pts = circ @ axes.T + c
+    return pts[:, 0], pts[:, 1]
+
+
+def _plotly_uq_figure(
+    xy: np.ndarray,
+    mass: np.ndarray,
+    hover_texts: Sequence[str],
+    *,
+    title: str,
+    xlabel: str,
+    ylabel: str,
+    markers: Sequence[dict] | None = None,
+    ellipses: Sequence[dict] | None = None,
+):
+    """Interactive local-U_q scatter with paragraph hover (Plotly)."""
+    import plotly.graph_objects as go
+
+    xy = np.asarray(xy, float)
+    mass = np.clip(np.asarray(mass, float).ravel(), 0.0, 1.0)
+    n = xy.shape[0]
+    texts = list(hover_texts)
+    if len(texts) != n:
+        texts = (texts + ["—"] * n)[:n]
+    order = np.argsort(mass)
+    sizes = 6.0 + 14.0 * mass[order]
+    alphas = np.clip(0.12 + 0.85 * mass[order], 0.12, 1.0)
+    colors = [f"rgba(11,11,11,{a:.3f})" for a in alphas]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=xy[order, 0],
+            y=xy[order, 1],
+            mode="markers",
+            marker=dict(size=sizes, color=colors, line=dict(width=0)),
+            text=np.asarray(texts, dtype=object)[order],
+            hovertemplate="%{text}<extra></extra>",
+            name="phrases",
+            showlegend=False,
+        )
+    )
+    for ell in ellipses or ():
+        poly = _ellipse_polyline(ell["center"], ell["cov2"])
+        if poly is None:
+            continue
+        xs, ys = poly
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=ys,
+                mode="lines",
+                line=dict(color=ell.get("color", MUTED), width=1.5, dash=ell.get("dash", "solid")),
+                hoverinfo="skip",
+                name=ell.get("name") or "",
+                showlegend=bool(ell.get("name")),
+            )
+        )
+    for m in markers or ():
+        fig.add_trace(
+            go.Scatter(
+                x=[float(m["x"])],
+                y=[float(m["y"])],
+                mode="markers+text" if m.get("label") else "markers",
+                marker=dict(
+                    symbol=m.get("symbol", "x"),
+                    size=int(m.get("size", 12)),
+                    color=m.get("color", MUTED),
+                    line=dict(width=1.2, color=INK),
+                ),
+                text=[_clip_label(m.get("label"), 28)] if m.get("label") else None,
+                textposition="top right",
+                hoverinfo="skip",
+                name=str(m.get("name") or m.get("label") or ""),
+                showlegend=False,
+            )
+        )
+    # Square-ish frame from mass-weighted extent
+    w = mass
+    wsum = float(w.sum()) or 1.0
+    mid = (xy * w[:, None]).sum(axis=0) / wsum
+    spread = np.sqrt((((xy - mid) ** 2) * w[:, None]).sum(axis=0) / wsum)
+    half = float(max(1.5 * float(np.max(spread)), 0.5))
+    fig.update_layout(
+        title=dict(text=title, x=0.0, xanchor="left", font=dict(size=14, color=INK)),
+        xaxis=dict(
+            title=xlabel,
+            range=[mid[0] - half, mid[0] + half],
+            scaleanchor="y",
+            scaleratio=1,
+            gridcolor=GRID,
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title=ylabel,
+            range=[mid[1] - half, mid[1] + half],
+            gridcolor=GRID,
+            zeroline=False,
+        ),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        margin=dict(l=50, r=20, t=50, b=50),
+        height=480,
+        width=640,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+    )
+    return fig
 
 
 def _clip_label(text: str | None, n: int = 34) -> str:
@@ -371,6 +555,8 @@ def topic_fit_view(
     path: str | Path | None = None,
     show: bool = True,
     sigma2: float | None = None,
+    phrases: Sequence[Any] | None = None,
+    interactive: bool | None = None,
 ):
     """Local Bishop–Tipping plane for one mixture component (CIP-0009).
 
@@ -391,10 +577,12 @@ def topic_fit_view(
         Optional topic noise; enlarges the ellipse by ``sqrt(sigma2)`` in
         isotropic residual directions when provided via ``component_fits``
         parent fit (passed explicitly if known).
+    phrases :
+        Optional per-point texts for Plotly hover (notebook Assess path).
+    interactive :
+        ``True`` force Plotly when available; ``False`` force matplotlib;
+        ``None`` auto (Plotly for live ``show`` without ``path``).
     """
-    plt = _plt()
-    from matplotlib.patches import Ellipse
-
     X = np.asarray(embeddings, float)
     R = np.asarray(responsibilities, float)
     focus = int(focus)
@@ -423,6 +611,51 @@ def topic_fit_view(
     if title is None:
         title = f"Topic {focus} — local U_q (model q={q_model})"
 
+    s0 = float(scales[0]) if len(scales) > 0 else 0.0
+    s1 = float(scales[1]) if len(scales) > 1 else 0.0
+    if sigma2 is not None and sigma2 > 0:
+        s0 = float(np.sqrt(s0 ** 2 + float(sigma2)))
+        s1 = float(np.sqrt(s1 ** 2 + float(sigma2)))
+
+    if _want_plotly_hover(
+        interactive=interactive, path=path, show=show, phrases=phrases
+    ):
+        ellipses = []
+        if s0 > 0 or s1 > 0:
+            ellipses.append(
+                {
+                    "center": np.zeros(2),
+                    "cov2": np.diag([max(s0, 1e-9) ** 2, max(s1, 1e-9) ** 2]),
+                    "color": PALETTE[focus % len(PALETTE)],
+                    "name": "1-SD local U_q",
+                }
+            )
+        pfig = _plotly_uq_figure(
+            xy,
+            mass,
+            hover_phrase_texts(phrases),
+            title=title,
+            xlabel="local PC1 (U_q)",
+            ylabel="local PC2 (U_q)",
+            markers=[
+                {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "symbol": "x",
+                    "size": 14,
+                    "color": PALETTE[focus % len(PALETTE)],
+                    "name": "μ",
+                }
+            ],
+            ellipses=ellipses,
+        )
+        if show:
+            pfig.show()
+        return pfig
+
+    plt = _plt()
+    from matplotlib.patches import Ellipse
+
     fig, ax = plt.subplots(figsize=(6.5, 5))
     # All points: ink density ∝ responsibility (non-members stay visible but faint)
     order = np.argsort(mass)  # draw high-mass on top
@@ -436,12 +669,6 @@ def topic_fit_view(
         zorder=2,
     )
     # Local PPCA shape: 1-SD ellipse in the U_q plane + axis ticks
-    s0 = float(scales[0]) if len(scales) > 0 else 0.0
-    s1 = float(scales[1]) if len(scales) > 1 else 0.0
-    if sigma2 is not None and sigma2 > 0:
-        # Residual isotropic noise also contributes in-plane
-        s0 = float(np.sqrt(s0 ** 2 + float(sigma2)))
-        s1 = float(np.sqrt(s1 ** 2 + float(sigma2)))
     if s0 > 0 or s1 > 0:
         ell = Ellipse(
             (0.0, 0.0),
@@ -631,6 +858,8 @@ def proposed_merge_view(
     title: str | None = None,
     path: str | Path | None = None,
     show: bool = True,
+    phrases: Sequence[Any] | None = None,
+    interactive: bool | None = None,
 ):
     """Proposed merge: originals in the *merged* soft-mass ``U_q`` plane.
 
@@ -639,8 +868,6 @@ def proposed_merge_view(
     source topic is drawn as a dashed 1-SD ellipse + mean with its catalogue
     label; the merged mean is a solid marker at the origin of this plane.
     """
-    plt = _plt()
-
     X = np.asarray(embeddings, float)
     mass = np.asarray(merged_mass, float).ravel()
     if X.ndim != 2 or len(X) < 2 or mass.shape[0] != len(X):
@@ -667,6 +894,74 @@ def proposed_merge_view(
             f"«{_clip_label(merge_name, 40)}» (merged U_q, q={q_model})"
         )
 
+    if _want_plotly_hover(
+        interactive=interactive, path=path, show=show, phrases=phrases
+    ):
+        Cov_m = _ppca_cov(merged_component_fit, float(sigma2))
+        C2_m = U.T @ Cov_m @ U
+        ellipses = [
+            {
+                "center": np.zeros(2),
+                "cov2": C2_m,
+                "color": MUTED,
+                "name": "1-SD merged",
+            }
+        ]
+        markers = [
+            {
+                "x": 0.0,
+                "y": 0.0,
+                "symbol": "x",
+                "size": 14,
+                "color": MUTED,
+                "name": "merged μ",
+            }
+        ]
+        for j, cf in enumerate(source_component_fits):
+            color = PALETTE[j % len(PALETTE)]
+            mu_s = np.asarray(cf["mu"], float).ravel()
+            center = (mu_s - mu) @ U
+            Cov = _ppca_cov(cf, float(sigma2))
+            C2 = U.T @ Cov @ U
+            name = (
+                str(source_labels[j])
+                if source_labels is not None and j < len(source_labels)
+                else f"source {j}"
+            )
+            ellipses.append(
+                {
+                    "center": center,
+                    "cov2": C2,
+                    "color": color,
+                    "dash": "dash",
+                    "name": _clip_label(name, 28),
+                }
+            )
+            markers.append(
+                {
+                    "x": float(center[0]),
+                    "y": float(center[1]),
+                    "symbol": "cross",
+                    "size": 12,
+                    "color": color,
+                    "label": name,
+                }
+            )
+        pfig = _plotly_uq_figure(
+            xy,
+            mass,
+            hover_phrase_texts(phrases),
+            title=title,
+            xlabel="merged local PC1 (U_q)",
+            ylabel="merged local PC2 (U_q)",
+            markers=markers,
+            ellipses=ellipses,
+        )
+        if show:
+            pfig.show()
+        return pfig
+
+    plt = _plt()
     fig, ax = plt.subplots(figsize=(6.5, 5))
     order = np.argsort(mass)
     ax.scatter(
@@ -778,6 +1073,8 @@ def proposed_split_view(
     title: str | None = None,
     path: str | Path | None = None,
     show: bool = True,
+    phrases: Sequence[Any] | None = None,
+    interactive: bool | None = None,
 ):
     """Proposed split: child means + local cov in the *parent* ``U_q`` plane.
 
@@ -785,8 +1082,6 @@ def proposed_split_view(
     covariances are projected into that plane as dashed 1-SD ellipses. Point
     ink follows parent soft mass (the bag being partitioned).
     """
-    plt = _plt()
-
     X = np.asarray(embeddings, float)
     mass = np.asarray(parent_mass, float).ravel()
     if X.ndim != 2 or len(X) < 2 or mass.shape[0] != len(X):
@@ -812,6 +1107,65 @@ def proposed_split_view(
             f"— parent U_q (q={q_model})"
         )
 
+    if _want_plotly_hover(
+        interactive=interactive, path=path, show=show, phrases=phrases
+    ):
+        markers = [
+            {
+                "x": 0.0,
+                "y": 0.0,
+                "symbol": "x",
+                "size": 12,
+                "color": MUTED,
+                "name": "parent μ",
+            }
+        ]
+        ellipses = []
+        for j, cf in enumerate(child_component_fits):
+            color = PALETTE[j % len(PALETTE)]
+            mu_c = np.asarray(cf["mu"], float).ravel()
+            center = (mu_c - mu) @ U
+            Cov = _ppca_cov(cf, float(sigma2))
+            C2 = U.T @ Cov @ U
+            name = None
+            if child_labels is not None and j < len(child_labels):
+                name = str(child_labels[j])
+            if not name:
+                name = f"child {j}"
+            ellipses.append(
+                {
+                    "center": center,
+                    "cov2": C2,
+                    "color": color,
+                    "dash": "dash",
+                    "name": _clip_label(name, 28),
+                }
+            )
+            markers.append(
+                {
+                    "x": float(center[0]),
+                    "y": float(center[1]),
+                    "symbol": "x",
+                    "size": 14,
+                    "color": color,
+                    "label": name,
+                }
+            )
+        pfig = _plotly_uq_figure(
+            xy,
+            mass,
+            hover_phrase_texts(phrases),
+            title=title,
+            xlabel="parent local PC1 (U_q)",
+            ylabel="parent local PC2 (U_q)",
+            markers=markers,
+            ellipses=ellipses,
+        )
+        if show:
+            pfig.show()
+        return pfig
+
+    plt = _plt()
     fig, ax = plt.subplots(figsize=(6.5, 5))
     order = np.argsort(mass)
     ax.scatter(

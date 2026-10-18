@@ -776,18 +776,37 @@ class SubjectGrainShell:
             dump_json(artefact, Path(path))
         return artefact
 
+    def hover_texts(self) -> list[str]:
+        """Per-point texts for Plotly hover (paragraph when available)."""
+        if self._phrases_df is not None:
+            for col in (
+                "paragraph",
+                "text",
+                "unit_text",
+                "chunk",
+                "context",
+                self.phrase_col,
+            ):
+                if col in self._phrases_df.columns:
+                    return self._phrases_df[col].astype(str).tolist()
+        return list(self._phrase_list)
+
     def fit_view(
         self,
         *,
         focus: int | None = None,
         path: str | Path | None = None,
         show: bool = False,
+        interactive: bool | None = None,
     ):
         """Re-draw the local U_q plane for ``focus`` (never calls the LLM).
 
         While a split is pending, draws the *proposed* children (means + local
         covariance) in the **parent** ``U_q`` basis. Otherwise draws the usual
         single-topic local plane for ``focus``.
+
+        Live notebook display prefers Plotly (phrase hover) when available;
+        ``path=`` always uses matplotlib for saved PNGs.
         """
         from .viz import proposed_merge_view, proposed_split_view, topic_fit_view
 
@@ -799,6 +818,10 @@ class SubjectGrainShell:
             if self.fit.get("sigma2") is not None
             else None
         )
+        phrases = self.hover_texts()
+        # Widget / live show → Plotly hover; explicit path → matplotlib export
+        if interactive is None and path is None and show:
+            interactive = True
         prop = self.pending_proposal
         if (
             prop is not None
@@ -829,6 +852,8 @@ class SubjectGrainShell:
                 sigma2=float(sigma2 or 0.0),
                 path=path,
                 show=show,
+                phrases=phrases,
+                interactive=interactive,
             )
         if (
             prop is not None
@@ -856,6 +881,8 @@ class SubjectGrainShell:
                 sigma2=float(sigma2 or 0.0),
                 path=path,
                 show=show,
+                phrases=phrases,
+                interactive=interactive,
             )
         # Live merge-candidate preview (selection only; geometry not yet applied)
         preview_ids = getattr(self, "_merge_preview_ids", None)
@@ -872,6 +899,8 @@ class SubjectGrainShell:
                     sigma2=float(sigma2 or 0.0),
                     path=path,
                     show=show,
+                    phrases=phrases,
+                    interactive=interactive,
                 )
         label = self.labels.get(focus, f"topic {focus}")
         parent = self.parent_of.get(focus)
@@ -889,6 +918,8 @@ class SubjectGrainShell:
             path=path,
             show=show,
             title=title,
+            phrases=phrases,
+            interactive=interactive,
         )
 
     # -------------------------------------------------------------- widgets
@@ -1127,7 +1158,18 @@ class SubjectGrainShell:
                     plt.close("all")
                 except Exception:  # noqa: BLE001
                     pass
-                self.fit_view(focus=focus, show=True)
+                from .viz import plotly_available
+
+                if plotly_available():
+                    fig = self.fit_view(
+                        focus=focus, show=False, interactive=True
+                    )
+                    if fig is not None:
+                        display(fig)
+                else:
+                    self.fit_view(
+                        focus=focus, show=True, interactive=False
+                    )
 
         def _refresh_catalogue() -> None:
             with cat_out:
