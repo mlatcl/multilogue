@@ -1438,6 +1438,82 @@ Journal of the Royal Statistical Society, B 61, 611–622.
 # ---------------------------------------------------------------------------
 # 09 Formats complexity
 # ---------------------------------------------------------------------------
+# Drawn flowchart for 09 (matplotlib; Mermaid in the markdown cell is for GitHub).
+FLOW_09 = r'''# Drawn copy of the analysis flow (renders in Colab / plain Jupyter; Mermaid above is for GitHub).
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch
+
+stages = [
+    (0.50, 0.94, "1. Setup"),
+    (0.50, 0.84, "2. Access — public format pair"),
+    (0.50, 0.74, "3. Gold ℓ — mpos vs premise by format"),
+    (0.50, 0.64, "4. Address — soft-throughout pipeline"),
+]
+inners = [
+    (0.50, 0.54, "4a. Extract phrases"),
+    (0.50, 0.46, "4b. Embed"),
+    (0.50, 0.38, "4c. Soft cluster — MPPCA + topic σ² profile"),
+    (0.50, 0.30, "4d. Topic labels + framing lenses"),
+    (0.50, 0.22, "4e. Soft compare, document EMD, multiverse ℓ"),
+]
+tail = [
+    (0.50, 0.11, "5. Reading the run"),
+    (0.50, 0.01, "6. Outlook"),
+]
+
+fig, ax = plt.subplots(figsize=(9.5, 10.5))
+ax.set_xlim(0, 1)
+ax.set_ylim(-0.04, 1.02)
+ax.axis("off")
+ax.set_title("Formats complexity — analysis flow", fontsize=14, pad=12)
+
+def _box(x, y, text, *, face, edge, width=0.72, height=0.065, fontsize=10, weight="normal"):
+    box = FancyBboxPatch(
+        (x - width / 2, y - height / 2),
+        width, height,
+        boxstyle="round,pad=0.012,rounding_size=0.02",
+        facecolor=face, edgecolor=edge, linewidth=1.4, transform=ax.transAxes,
+        clip_on=False,
+    )
+    ax.add_patch(box)
+    ax.text(x, y, text, ha="center", va="center", fontsize=fontsize,
+            fontweight=weight, transform=ax.transAxes, color="#1a202c")
+
+def _arrow(y0, y1, gap=0.032):
+    ax.annotate(
+        "", xy=(0.50, y1 + gap), xytext=(0.50, y0 - gap),
+        xycoords=ax.transAxes, textcoords=ax.transAxes,
+        arrowprops=dict(arrowstyle="->", color="#2c5282", lw=1.3),
+    )
+
+frame = FancyBboxPatch(
+    (0.08, 0.175), 0.84, 0.42,
+    boxstyle="round,pad=0.01,rounding_size=0.02",
+    facecolor="#f7fafc", edgecolor="#a0aec0", linewidth=1.0,
+    linestyle="--", transform=ax.transAxes, clip_on=False,
+)
+ax.add_patch(frame)
+ax.text(0.10, 0.575, "Address internals (one StageRunner run)",
+        fontsize=9, color="#4a5568", transform=ax.transAxes, style="italic")
+
+for x, y, t in stages:
+    _box(x, y, t, face="#e8f1fa", edge="#2c5282", weight="bold")
+for x, y, t in inners:
+    _box(x, y, t, face="#edf2f7", edge="#718096", width=0.78, height=0.055, fontsize=9)
+for x, y, t in tail:
+    _box(x, y, t, face="#e8f1fa", edge="#2c5282", weight="bold")
+
+chain = [s[1] for s in stages] + [i[1] for i in inners] + [t[1] for t in tail]
+for a, b in zip(chain, chain[1:]):
+    _arrow(a, b)
+
+fig.tight_layout()
+plt.show()
+path = FIG / "09_analysis_flow.png"
+fig.savefig(path, dpi=150, bbox_inches="tight", facecolor="white")
+print("Saved", path)
+'''
+
 NOTEBOOKS["09_formats_complexity.ipynb"] = [
     md(
         title_block(
@@ -1465,12 +1541,58 @@ weight → soft lenses → document distance → multiverse. The group column he
 `format` $\\in\\{\\mathrm{dialogue},\\mathrm{survey}\\}$. The headline $\\ell$ is a
 document-weighted format gap on the lens with largest absolute difference —
 recomputed under each analytic configuration without new LLM calls.
+
+The flowchart below is the map for this notebook. Section headings use the same
+numbers and titles so you can jump from the diagram to the matching cell.
 """
     ),
+    md(
+        """
+## Analysis flow
+
+Six numbered stages. **Address** expands into the soft-throughout pipeline that
+`StageRunner` resumes from disk (extract → embed → MPPCA topics → labels/lenses →
+soft compare / EMD → multiverse $\\ell$).
+
+```mermaid
+flowchart TD
+  S["1. Setup"] --> A["2. Access — public format pair"]
+  A --> G["3. Gold ℓ — mpos vs premise by format"]
+  G --> AD["4. Address — soft-throughout pipeline"]
+
+  subgraph ADDR["Address internals (one StageRunner run)"]
+    direction TB
+    E1["4a. Extract phrases"] --> E2["4b. Embed"]
+    E2 --> E3["4c. Soft cluster — MPPCA + topic σ² profile"]
+    E3 --> E4["4d. Topic labels + framing lenses"]
+    E4 --> E5["4e. Soft compare, document EMD, multiverse ℓ"]
+  end
+
+  AD --> ADDR
+  ADDR --> R["5. Reading the run"]
+  R --> O["6. Outlook"]
+
+  classDef stage fill:#e8f1fa,stroke:#2c5282,stroke-width:1.5px,color:#1a202c
+  classDef inner fill:#f7fafc,stroke:#718096,stroke-width:1px,color:#1a202c
+  class S,A,G,AD,R,O stage
+  class E1,E2,E3,E4,E5 inner
+```
+
+| # | Section | What it does |
+|---|---------|--------------|
+| 1 | Setup | Install / locate multilogue (first code cell) |
+| 2 | Access — public format pair | CIMT dialogue vs survey (or synthetic fallback) |
+| 3 | Gold $\\ell$ — mpos vs premise by format | Paper-aligned argument codes; no LLM |
+| 4 | Address — soft-throughout pipeline | Cache / live / FakeClient; StageRunner stages 4a–4e |
+| 5 | Reading the run | Catalogue, top concerns, findings markdown |
+| 6 | Outlook | What stays in a consumer formats package |
+"""
+    ),
+    code(FLOW_09),
     code(ENSURE_POT),
     md(
         """
-## Access — public format pair
+## 2. Access — public format pair
 
 CIMT Bonn cycling *dialogue* vs *survey* stand in for workshop vs survey when
 the network is available. Assess without the analysis question: coverage by
@@ -1507,7 +1629,7 @@ display(unit_size_table(access_units).describe())
     ),
     md(
         """
-## Gold $\\ell$ — major position vs premise by format
+## 3. Gold $\\ell$ — mpos vs premise by format
 
 Romberg & Conrad (2021) report that map *dialogue* contributions are longer and
 **premise-rich**, while the Bonn *survey* is short and **major-position-heavy**.
@@ -1545,10 +1667,12 @@ below is a separate Address question.
     ),
     md(
         """
-## Address — cache first, then FakeClient fallback
+## 4. Address — soft-throughout pipeline
 
 StageRunner checkpoints under `outputs/formats_cimt_llm/` mean a prior CIMT LLM
-run can be reused without paying again. The next cell therefore:
+run can be reused without paying again. Internally this is stages **4a–4e** on
+the flowchart (extract → embed → MPPCA + topic $\\sigma^2$ profile → labels/lenses
+→ soft compare / EMD / multiverse $\\ell$). The next cell therefore:
 
 1. loads `.env` if present;
 2. if `OPENAI_API_KEY` is set and CIMT units exist — *resume or recache* the live
@@ -1682,7 +1806,7 @@ if isinstance(summary, dict):
     ),
     md(
         """
-## Reading the run
+## 5. Reading the run
 
 Findings summarise gold argument structure (when present), clusters, top
 concerns by format, and which analytic decisions move the topic-gap $\\ell$.
@@ -1736,7 +1860,7 @@ display(Markdown(md_text))
     ),
     md(
         """
-# Outlook
+## 6. Outlook
 
 Multilogue owns the shared stages above. A formats-style consumer package still
 keeps: PDF/docx Access, study prompts and experience coding, researcher-edited
