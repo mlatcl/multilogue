@@ -245,7 +245,8 @@ def findings_markdown(
     lines.append("## Clusters")
     lines.append("")
     lines.append(
-        "Each cluster is a topic bag from frozen *k*-means; labels are model-proposed."
+        "Each cluster is a topic bag from soft MPPCA (MAP harden view for labels); "
+        "labels are model-proposed."
     )
     lines.append("")
     for r in cat.itertuples():

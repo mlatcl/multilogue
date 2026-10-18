@@ -24,7 +24,8 @@ class FakeEmbedClient:
         return out
 
 
-def test_frozen_assignments_roundtrip(tmp_path: Path):
+def test_default_always_refits_mppca(tmp_path: Path):
+    """Silent freeze is off: every default call runs MPPCA and writes soft state."""
     phrases = pd.DataFrame(
         {
             "phrase_id": [f"p{i}" for i in range(20)],
@@ -33,24 +34,61 @@ def test_frozen_assignments_roundtrip(tmp_path: Path):
     )
     emb = Embedder(tmp_path, FakeEmbedClient(), "fake-embed")
     E = emb(phrases.phrase.tolist())
-    labels1, C1, frozen1 = frozen_or_new_assignments(phrases, E, k=3, seed=0, checkpoint_dir=tmp_path)
+    labels1, C1, frozen1 = frozen_or_new_assignments(
+        phrases, E, k=3, seed=0, checkpoint_dir=tmp_path
+    )
     assert not frozen1
-    # Soft MPPCA checkpoints are the primary freeze artefacts
     assert (tmp_path / "topic_responsibilities_k3.npy").exists()
     assert (tmp_path / "topic_means_k3.npy").exists()
     R = np.load(tmp_path / "topic_responsibilities_k3.npy")
     assert R.shape == (20, 3)
     assert np.allclose(R.sum(axis=1), 1.0, atol=1e-5)
-    labels2, C2, frozen2 = frozen_or_new_assignments(phrases, E, k=3, seed=0, checkpoint_dir=tmp_path)
-    assert frozen2
+
+    # Default call again: still a fresh fit (not a freeze hit), even with cache present
+    labels2, C2, frozen2 = frozen_or_new_assignments(
+        phrases, E, k=3, seed=0, checkpoint_dir=tmp_path
+    )
+    assert not frozen2
     assert np.array_equal(labels1, labels2)
     assert np.allclose(C1, C2)
 
+    # Explicit freeze reloads soft checkpoints
     labels3, C3, frozen3, R3 = frozen_or_new_assignments(
-        phrases, E, k=3, seed=0, checkpoint_dir=tmp_path, return_soft=True
+        phrases,
+        E,
+        k=3,
+        seed=0,
+        checkpoint_dir=tmp_path,
+        freeze=True,
+        return_soft=True,
     )
     assert frozen3
+    assert np.array_equal(labels1, labels3)
     assert np.allclose(R, R3)
+
+
+def test_hard_csv_alone_does_not_freeze(tmp_path: Path):
+    """Legacy hard assignment CSVs must not short-circuit MPPCA."""
+    phrases = pd.DataFrame(
+        {
+            "phrase_id": [f"p{i}" for i in range(20)],
+            "phrase": [f"theme {i % 3} item {i}" for i in range(20)],
+        }
+    )
+    emb = Embedder(tmp_path, FakeEmbedClient(), "fake-embed")
+    E = emb(phrases.phrase.tolist())
+    # Plant a hard-only cache as if from pre-CIP-0017
+    pd.DataFrame(
+        {"phrase_id": phrases.phrase_id, "cluster": [i % 3 for i in range(20)]}
+    ).to_csv(tmp_path / "cluster_assignments_k3.csv", index=False)
+    labels, C, frozen, R = frozen_or_new_assignments(
+        phrases, E, k=3, seed=0, checkpoint_dir=tmp_path, return_soft=True
+    )
+    assert not frozen
+    assert R.shape == (20, 3)
+    assert np.allclose(R.sum(axis=1), 1.0, atol=1e-5)
+    # Soft checkpoints now exist
+    assert (tmp_path / "topic_responsibilities_k3.npy").exists()
 
 
 def test_resolve_lenses_default():

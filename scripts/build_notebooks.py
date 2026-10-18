@@ -446,8 +446,7 @@ if "verified" in phrases.columns:
 # Outlook
 
 Phrases alone are not a comparison. Notebook 03 places them in a shared
-embedding space, freezes $k$-means assignments when the phrase set is unchanged,
-and proposes blind labels and framing lenses.
+embedding space with soft MPPCA topics (harden only for labels / lenses).
 """
     ),
 ]
