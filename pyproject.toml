@@ -24,6 +24,7 @@ openai = ["openai>=1.40"]
 litellm = ["litellm>=1.40"]
 report = ["matplotlib>=3.7"]
 distance = ["pot>=0.9"]
+notebook = ["ipywidgets>=8", "matplotlib>=3.7"]
 docs = [
     "mkdocs>=1.6,<2",
     "mkdocs-material>=9.5",
@@ -38,6 +39,7 @@ dev = [
     "nbclient>=0.10",
     "ipython>=8",
     "ipykernel>=6",
+    "ipywidgets>=8",
     "pre-commit>=4",
     "nbstripout>=0.9",
     "mkdocs>=1.6,<2",

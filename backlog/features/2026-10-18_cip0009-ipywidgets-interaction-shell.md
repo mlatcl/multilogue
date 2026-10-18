@@ -1,7 +1,7 @@
 ---
 id: "2026-10-18_cip0009-ipywidgets-interaction-shell"
 title: "CIP-0009: ipywidgets subject-grain interaction shell (Layer B)"
-status: "Ready"
+status: "Completed"
 priority: "High"
 created: "2026-10-18"
 last_updated: "2026-10-18"
@@ -43,19 +43,22 @@ import without it. No click-on-canvas hit-testing in this task.
 
 ## Acceptance Criteria
 
-- [ ] Shell state machine supports merge / split / undo / dirty set / lock
-- [ ] Merge/Split/Undo always refresh the fit view without calling the LLM
-- [ ] LLM labelling runs only via explicit “Name dirty topics” (or documented
+- [x] Shell state machine supports merge / split / undo / dirty set / lock
+- [x] Merge/Split/Undo always refresh the fit view without calling the LLM
+- [x] LLM labelling runs only via explicit “Name dirty topics” (or documented
       toggle), and only for dirty ids
-- [ ] Lock invokes Layer A `lock_subject_grain` (or equivalent)
-- [ ] Importing multilogue succeeds when `ipywidgets` is absent
-- [ ] Unit tests cover dirty/undo logic without requiring a display frontend
+- [x] Lock invokes Layer A `lock_subject_grain` (or equivalent)
+- [x] Importing multilogue succeeds when `ipywidgets` is absent
+- [x] Unit tests cover dirty/undo logic without requiring a display frontend
 
 ## Implementation Notes
 
-- Depend on Layer A helpers; do not re-implement MPPCA in the widget module.
-- Colab-friendly: buttons + selectors, not matplotlib pick events.
-- FakeClient-compatible label hook for pedagogy.
+- `multilogue/subject_grain_shell.py`: `SubjectGrainShell` state machine +
+  optional `.widgets()` / `.display()`.
+- Optional extra: `multilogue[notebook]` (ipywidgets). Core import-guarded.
+- `name_after_action=True` is the documented toggle for auto-label after
+  structural clicks; default is label-on-demand only.
+- FakeClient-compatible via `label_work=` (`make_label_work` shape).
 
 ## Related
 
@@ -69,3 +72,5 @@ import without it. No click-on-canvas hit-testing in this task.
 ### 2026-10-18
 
 Task created after CIP-0009 interaction-shell design amendment.
+
+Implemented Layer B + tests (`tests/test_subject_grain_shell.py`).
