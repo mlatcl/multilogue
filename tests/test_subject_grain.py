@@ -10,7 +10,9 @@ from multilogue.experiment import run_formats_complexity_demo
 from multilogue.mppca import mppca_fit, responsibilities_to_labels
 from multilogue.subject_grain import (
     fit_fingerprint,
+    initial_assess_fit,
     lock_subject_grain,
+    profile_sigma2_holding_responsibilities,
     propose_merge,
     propose_split,
     resolve_k_multiverse,
@@ -46,6 +48,8 @@ def test_resolve_k_multiverse_hold_and_pm1():
     assert resolve_k_multiverse(10, None) == [10]
     assert resolve_k_multiverse(10, "pm1") == [9, 10, 11]
     assert resolve_k_multiverse(2, "pm1") == [2, 3]
+    assert resolve_k_multiverse(1, "pm1") == [1, 2]
+    assert resolve_k_multiverse(1, "hold") == [1]
     assert resolve_k_multiverse(8, [5, 8, 12]) == [5, 8, 12]
 
 
@@ -104,6 +108,54 @@ def test_propose_split_increases_k():
     assert out["parent_component_fit"] is not None
     assert "mu" in out["parent_component_fit"]
     assert out["local_fit"]["k"] == 2
+    # Children ordered by soft mass: first child id has ≥ mass of second
+    kids = out["dirty"]
+    mass = out["fit"]["responsibilities"].sum(axis=0)
+    assert mass[kids[0]] >= mass[kids[1]] - 1e-9
+    assert "kl" in out
+    assert np.isfinite(out["kl"])
+
+
+def test_parent_split_kl_and_dendrogram_record():
+    from multilogue.subject_grain import (
+        dendrogram_abandon,
+        dendrogram_new,
+        dendrogram_record_split,
+        parent_split_kl,
+    )
+
+    X, y = _planted_blobs(seed=11, k=2, n_per=35)
+    fit = mppca_fit(X, k=1, sigma2=0.12, seed=11, max_iter=25)
+    out = propose_split(X, fit, 0, n_children=2, seed=11)
+    local = out["local_fit"]
+    kl = parent_split_kl(
+        X,
+        out["parent_mass"],
+        out["parent_component_fit"],
+        local["component_fits"],
+        local["pi"],
+        float(fit["sigma2"]),
+    )
+    assert np.isfinite(kl)
+    assert abs(kl - out["kl"]) < 1e-9
+
+    tree = dendrogram_new(1, labels={0: "root"})
+    tree = dendrogram_record_split(
+        tree,
+        parent_topic=0,
+        child_topics=out["dirty"],
+        kl=out["kl"],
+        labels={0: "big", 1: "small"},
+    )
+    assert tree["active"]
+    splits = [n for n in tree["nodes"].values() if n["kind"] == "split"]
+    assert len(splits) == 1
+    assert splits[0]["kl"] == abs(float(out["kl"]))
+    leaves = [n for n in tree["nodes"].values() if n["kind"] == "leaf"]
+    assert len(leaves) == 2
+    abandoned = dendrogram_abandon(tree, reason="merge")
+    assert abandoned["active"] is False
+    assert abandoned["nodes"] == {}
 
 
 def test_merge_then_split_recovers_separable_structure():
@@ -253,3 +305,71 @@ def test_formats_demo_k_grid_one_factor_sweep(tmp_path: Path):
     assert summary["resolution_k_sweep"] == len(sweep)
     # Lock records explicit levels from k_grid
     assert summary["subject_grain"]["k_multiverse"] == [3, 4, 5]
+
+
+def test_initial_assess_fit_k1_profile_and_fixed():
+    from multilogue.mppca import DEFAULT_TOPIC_SIGMA2
+
+    X, _ = _planted_blobs(seed=11, k=2, n_per=25)
+    fit_p = initial_assess_fit(X, k=1, sigma2_mode="profile", seed=11, max_iter=20)
+    assert fit_p["k"] == 1
+    assert fit_p["responsibilities"].shape == (X.shape[0], 1)
+    assert fit_p["sigma2"] == pytest.approx(DEFAULT_TOPIC_SIGMA2)
+    assert fit_p["sigma2_selection"]["selection"] == "k1_default_floor"
+    fit_f = initial_assess_fit(
+        X, k=1, sigma2_mode="fixed", sigma2=0.15, seed=11, max_iter=15
+    )
+    assert fit_f["k"] == 1
+    assert fit_f["sigma2"] == pytest.approx(0.15)
+
+
+def test_propose_merge_preview_iters_cheaper_than_accept():
+    X, _ = _planted_blobs(seed=12, k=3)
+    fit = mppca_fit(X, k=3, sigma2=0.12, seed=12, max_iter=25)
+    cheap = propose_merge(X, fit, [0, 1], seed=12, refit=True, max_iter=1)
+    full = propose_merge(X, fit, [0, 1], seed=12, refit=True, max_iter=30)
+    assert cheap["fit"]["k"] == full["fit"]["k"] == 2
+    assert int(cheap["fit"]["n_iter"]) <= int(full["fit"]["n_iter"])
+
+
+def test_profile_sigma2_holding_responsibilities_keeps_k():
+    X, _ = _planted_blobs(seed=13, k=3)
+    fit = mppca_fit(X, k=3, sigma2=0.08, seed=13, max_iter=25)
+    R = fit["responsibilities"].copy()
+    prof = profile_sigma2_holding_responsibilities(X, R, seed=13)
+    assert prof["fit"]["k"] == 3
+    assert prof["fit"]["responsibilities"].shape == R.shape
+    np.testing.assert_allclose(prof["fit"]["responsibilities"], R, atol=1e-12)
+    assert prof["sigma2"] > 0
+    assert "held_R" in prof["selection"]
+
+
+def test_profile_hold_r_preserves_balanced_split():
+    """Regression: Accept re-profile must not move soft mass / MAP labels.
+
+    Uses planted blobs (CI-safe). Optional local embeddings path is used
+    only when present so a developer cache can still exercise the same logic.
+    """
+    emb = Path("notebooks/outputs/emb/embeddings_text-embedding-3-small.npy")
+    if emb.is_file() and emb.stat().st_size > 0:
+        E = np.load(emb)
+        if E.shape[0] < 40:
+            E, _ = _planted_blobs(seed=0, k=2, n_per=40, d=16)
+    else:
+        E, _ = _planted_blobs(seed=0, k=2, n_per=40, d=16)
+    fit1 = initial_assess_fit(
+        E, k=1, sigma2_mode="fixed", sigma2=0.12, seed=0, max_iter=20
+    )
+    split = propose_split(E, fit1, 0, seed=0, max_iter=20)
+    R = split["fit"]["responsibilities"].copy()
+    mass_before = R.sum(0)
+    assert mass_before.min() / mass_before.sum() > 0.20
+    map_before = np.bincount(R.argmax(1), minlength=R.shape[1])
+    prof = profile_sigma2_holding_responsibilities(E, R, seed=0)
+    mass_after = prof["fit"]["responsibilities"].sum(0)
+    np.testing.assert_allclose(mass_after, mass_before, atol=1e-9)
+    np.testing.assert_allclose(prof["fit"]["responsibilities"], R, atol=1e-12)
+    map_after = np.bincount(
+        prof["fit"]["responsibilities"].argmax(1), minlength=R.shape[1]
+    )
+    np.testing.assert_array_equal(map_after, map_before)

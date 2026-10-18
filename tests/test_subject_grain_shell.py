@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from multilogue.mppca import mppca_fit
+from multilogue.subject_grain import initial_assess_fit
 from multilogue.subject_grain_shell import (
     SubjectGrainShell,
     ipywidgets_available,
@@ -409,3 +410,97 @@ def test_widgets_optional():
         # Construct without displaying (no Jupyter frontend needed for object build)
         ui = shell.widgets()
         assert ui is not None
+
+
+def test_shell_k1_entry_split_grows_grain():
+    X, fit, phrases = _planted(k=2, seed=20)
+    grain = initial_assess_fit(X, k=1, sigma2_mode="fixed", sigma2=0.12, seed=20)
+    shell = SubjectGrainShell(
+        X, grain, phrases, seed=20, sigma2_mode="fixed", em_max_iter_accept=15
+    )
+    assert shell.k == 1
+    assert shell.dendrogram["active"]
+    shell.split(0, name_children=False)
+    assert shell.k == 2
+    assert shell.pending_proposal is not None
+    kids = shell.proposed_topic_ids()
+    mass = shell.responsibilities.sum(axis=0)
+    assert mass[kids[0]] >= mass[kids[1]] - 1e-9
+    assert np.isfinite(shell.pending_proposal.get("kl", float("nan")))
+    # Dendrogram grows on propose (undo restores)
+    assert any(n["kind"] == "split" for n in shell.dendrogram["nodes"].values())
+    assert shell.accept_proposal()
+    assert shell.pending_proposal is None
+    assert shell.k == 2
+    assert any(n["kind"] == "split" for n in shell.dendrogram["nodes"].values())
+    # Merge abandons the tree
+    shell.merge([0, 1], name_merged=False)
+    assert shell.dendrogram["active"] is False
+    assert shell.dendrogram["abandoned_reason"] == "merge"
+    shell.undo()
+    assert shell.dendrogram["active"]
+    assert any(n["kind"] == "split" for n in shell.dendrogram["nodes"].values())
+
+
+def test_shell_fixed_sigma2_holds_across_merge():
+    X, fit, phrases = _planted(seed=21)
+    shell = SubjectGrainShell(
+        X,
+        fit,
+        phrases,
+        labels={0: "A", 1: "B", 2: "C"},
+        seed=21,
+        sigma2_mode="fixed",
+        em_max_iter_accept=20,
+    )
+    shell.set_sigma2(0.17)
+    assert shell.fit["sigma2"] == pytest.approx(0.17)
+    shell.merge([0, 1], name_merged=False)
+    assert shell.fit["sigma2"] == pytest.approx(0.17)
+    shell.accept_proposal()
+    assert shell.fit["sigma2"] == pytest.approx(0.17)
+    assert shell.sigma2_mode == "fixed"
+
+
+def test_shell_profile_accept_updates_sigma2_and_lock_extra(tmp_path: Path):
+    X, fit, phrases = _planted(seed=22)
+    shell = SubjectGrainShell(
+        X,
+        fit,
+        phrases,
+        labels={0: "A", 1: "B", 2: "C"},
+        seed=22,
+        sigma2_mode="profile",
+        em_max_iter_accept=12,
+        em_max_iter_preview=1,
+    )
+    before = float(shell.fit["sigma2"])
+    shell.merge([0, 1], name_merged=False)
+    R_pending = shell.responsibilities.copy()
+    # Propose keeps parent σ²; Accept re-profiles geometry but holds R
+    assert shell.fit["sigma2"] == pytest.approx(before)
+    shell.accept_proposal()
+    assert float(shell.fit["sigma2"]) > 0
+    np.testing.assert_allclose(shell.responsibilities, R_pending, atol=1e-12)
+    lock = shell.lock(path=tmp_path / "lock.json")
+    assert lock["sigma2_mode"] == "profile"
+    assert lock["em_max_iter_accept"] == 12
+    assert lock["em_max_iter_preview"] == 1
+
+
+def test_merge_preview_uses_preview_iter_budget():
+    X, fit, phrases = _planted(seed=23)
+    shell = SubjectGrainShell(
+        X,
+        fit,
+        phrases,
+        seed=23,
+        em_max_iter_preview=1,
+        em_max_iter_accept=25,
+    )
+    payload = shell.merge_preview_payload([0, 1])
+    assert payload is not None
+    assert payload["merged_id"] is not None
+    # Preview must not mutate shell state
+    assert shell.k == 3
+    assert shell.pending_proposal is None
