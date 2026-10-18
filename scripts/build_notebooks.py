@@ -651,9 +651,10 @@ automatic maximisation of a study metric $\\ell$. Under *assess without the
 question*, this loop is Assess; lenses, format gap, and multiverse under a
 **locked** catalogue are Address.
 
-**Noise policy:** $\\sigma^2$ may be **fixed** or **profiled** (CIP-0017 grid).
-Live merge preview never re-profiles; Accept can. EM budgets separate cheap
-preview from Propose/Accept.
+**Noise policy:** topic $\\sigma^2$ is **fixed** for the Assess loop (CIP-0017
+dual of Bishop–Tipping’s fixed $q{=}2$: we pin noise, $q$ falls out). Optional
+profile mode remains on the widget for experiments; live merge preview never
+re-profiles. EM budgets separate cheap preview from Propose/Accept.
 
 **Catalogue first:** the shell names every topic once (LLM) so the table shows
 real subject labels — not ``topic 0``. The widget has a **label prompt** text
@@ -672,8 +673,11 @@ from multilogue.subject_grain import initial_assess_fit
 from multilogue.subject_grain_shell import SubjectGrainShell, ipywidgets_available
 
 # CIP-000A: Assess entry is one soft topic; split grows the catalogue.
+# Fixed σ² (DEFAULT_TOPIC_SIGMA2): pin noise, let q truncate — not profile-on-Accept.
 # Earlier multi-k fit above remains a soft-throughout teaching view.
-grain_fit = initial_assess_fit(E, k=1, sigma2_mode="profile", seed=0)
+grain_fit = initial_assess_fit(
+    E, k=1, sigma2_mode="fixed", sigma2=DEFAULT_TOPIC_SIGMA2, seed=0
+)
 # label_client= lets the widget Textarea / model Dropdown rebuild label_work
 shell = SubjectGrainShell(
     E, grain_fit, phrases, phrase_col="phrase", seed=0,
@@ -682,7 +686,7 @@ shell = SubjectGrainShell(
     label_prompt=TOPIC_LABEL_PROMPT,
     label_model=models["label"],
     name_initial=True,
-    sigma2_mode="profile",
+    sigma2_mode="fixed",
 )
 print(
     f"Assess entry k={shell.k}, σ²={shell.fit['sigma2']:.4g} "
