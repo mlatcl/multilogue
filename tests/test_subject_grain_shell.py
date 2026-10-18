@@ -419,12 +419,27 @@ def test_shell_k1_entry_split_grows_grain():
         X, grain, phrases, seed=20, sigma2_mode="fixed", em_max_iter_accept=15
     )
     assert shell.k == 1
+    assert shell.dendrogram["active"]
     shell.split(0, name_children=False)
     assert shell.k == 2
     assert shell.pending_proposal is not None
+    kids = shell.proposed_topic_ids()
+    mass = shell.responsibilities.sum(axis=0)
+    assert mass[kids[0]] >= mass[kids[1]] - 1e-9
+    assert np.isfinite(shell.pending_proposal.get("kl", float("nan")))
+    # Dendrogram grows on propose (undo restores)
+    assert any(n["kind"] == "split" for n in shell.dendrogram["nodes"].values())
     assert shell.accept_proposal()
     assert shell.pending_proposal is None
     assert shell.k == 2
+    assert any(n["kind"] == "split" for n in shell.dendrogram["nodes"].values())
+    # Merge abandons the tree
+    shell.merge([0, 1], name_merged=False)
+    assert shell.dendrogram["active"] is False
+    assert shell.dendrogram["abandoned_reason"] == "merge"
+    shell.undo()
+    assert shell.dendrogram["active"]
+    assert any(n["kind"] == "split" for n in shell.dendrogram["nodes"].values())
 
 
 def test_shell_fixed_sigma2_holds_across_merge():

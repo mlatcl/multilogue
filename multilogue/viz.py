@@ -132,9 +132,14 @@ def _plotly_uq_figure(
     if len(texts) != n:
         texts = (texts + ["—"] * n)[:n]
     order = np.argsort(mass)
-    sizes = 6.0 + 14.0 * mass[order]
+    sizes = 2.0 + 3.5 * mass[order]
     alphas = np.clip(0.12 + 0.85 * mass[order], 0.12, 1.0)
     colors = [f"rgba(11,11,11,{a:.3f})" for a in alphas]
+    ordered_texts = np.asarray(texts, dtype=object)[order]
+    # Short hover; full text goes to the side readout via customdata
+    hover_short = [
+        (t if len(t) <= 72 else t[:71] + "…") for t in ordered_texts.tolist()
+    ]
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -142,7 +147,8 @@ def _plotly_uq_figure(
             y=xy[order, 1],
             mode="markers",
             marker=dict(size=sizes, color=colors, line=dict(width=0)),
-            text=np.asarray(texts, dtype=object)[order],
+            text=hover_short,
+            customdata=ordered_texts,
             hovertemplate="%{text}<extra></extra>",
             name="phrases",
             showlegend=False,
@@ -208,11 +214,77 @@ def _plotly_uq_figure(
         plot_bgcolor="white",
         paper_bgcolor="white",
         margin=dict(l=50, r=20, t=50, b=50),
-        height=480,
-        width=640,
+        height=460,
+        width=520,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
     return fig
+
+
+def uq_click_readout_panel(
+    fig,
+    *,
+    placeholder: str = "Click a point to read the phrase.",
+):
+    """Pair a Plotly ``FigureWidget`` with an HTML side panel for full text.
+
+    Returns ``(figure_widget, html_widget, row_box)`` for notebook display.
+    Requires ipywidgets. Falls back to ``(fig, None, fig)`` if FigureWidget
+    cannot be built.
+    """
+    try:
+        import ipywidgets as W
+        import plotly.graph_objects as go
+    except ImportError:
+        return fig, None, fig
+
+    try:
+        fw = go.FigureWidget(fig)
+    except Exception:  # noqa: BLE001 — older frontends / missing widget ext
+        return fig, None, fig
+
+    box = W.HTML(
+        value=(
+            "<div style='font:13px/1.45 -apple-system,BlinkMacSystemFont,"
+            "Segoe UI,sans-serif;color:#0b0b0b;padding:8px 10px;"
+            "border-left:1px solid #e4e3df;height:440px;overflow:auto'>"
+            f"<i style='color:#52514e'>{placeholder}</i></div>"
+        ),
+        layout=W.Layout(width="340px", min_width="280px", height="460px"),
+    )
+
+    def _bind(trace) -> None:
+        def _on_click(trace, points, selector):  # noqa: ARG001
+            if not points.point_inds:
+                return
+            j = int(points.point_inds[0])
+            raw = None
+            if points.customdata is not None and len(points.customdata) > j:
+                raw = points.customdata[j]
+            elif points.text is not None and len(points.text) > j:
+                raw = points.text[j]
+            if raw is None:
+                return
+            body = str(raw)
+            box.value = (
+                "<div style='font:13px/1.45 -apple-system,BlinkMacSystemFont,"
+                "Segoe UI,sans-serif;color:#0b0b0b;padding:8px 10px;"
+                "border-left:1px solid #e4e3df;height:440px;overflow:auto'>"
+                f"{body}</div>"
+            )
+
+        trace.on_click(_on_click)
+
+    for tr in fw.data:
+        mode = str(getattr(tr, "mode", "") or "")
+        if "markers" in mode and getattr(tr, "customdata", None) is not None:
+            _bind(tr)
+            break
+    row = W.HBox(
+        [fw, box],
+        layout=W.Layout(align_items="flex-start", width="100%"),
+    )
+    return fw, box, row
 
 
 def _clip_label(text: str | None, n: int = 34) -> str:
@@ -1424,5 +1496,144 @@ def doc_mds_scatter(
     ax.set_title(title, loc="left", color=INK, fontsize=11)
     ax.legend(frameon=False, fontsize=9)
     tidy(ax)
+    fig.tight_layout()
+    return save(fig, path, show=show)
+
+
+def plot_grain_dendrogram(
+    tree: dict[str, Any] | None,
+    *,
+    title: str | None = None,
+    path: str | Path | None = None,
+    show: bool = True,
+    figsize: tuple[float, float] = (6.5, 3.8),
+):
+    """Matplotlib dendrogram for a split-only grain tree (KL branch lengths).
+
+    ``tree`` is the structure from :func:`multilogue.subject_grain.dendrogram_new`
+    / ``dendrogram_record_split``. Abandoned trees render a short notice.
+    """
+    plt = _plt()
+    fig, ax = plt.subplots(figsize=figsize)
+    if tree is None or not tree.get("active"):
+        reason = (tree or {}).get("abandoned_reason") or "inactive"
+        ax.text(
+            0.5,
+            0.5,
+            f"Dendrogram abandoned ({reason}).\nSplits only — merge clears the tree.",
+            ha="center",
+            va="center",
+            color=MUTED,
+            fontsize=11,
+            transform=ax.transAxes,
+        )
+        ax.set_axis_off()
+        if title:
+            ax.set_title(title, loc="left", color=INK, fontsize=11)
+        fig.tight_layout()
+        return save(fig, path, show=show)
+
+    nodes = tree.get("nodes") or {}
+    if not nodes:
+        ax.set_axis_off()
+        fig.tight_layout()
+        return save(fig, path, show=show)
+
+    # Leaf x-positions via inorder walk (children already mass-ordered)
+    x_of: dict[int, float] = {}
+    counter = [0]
+
+    def _place(nid: int) -> float:
+        nid = int(nid)
+        node = nodes[nid]
+        kids = node.get("children") or []
+        if not kids:
+            x = float(counter[0])
+            counter[0] += 1
+            x_of[nid] = x
+            return x
+        xs = [_place(int(c)) for c in kids]
+        x = float(sum(xs) / len(xs))
+        x_of[nid] = x
+        return x
+
+    roots = [int(r) for r in (tree.get("roots") or []) if int(r) in nodes]
+    if not roots:
+        # Fall back: nodes with no parent
+        roots = [
+            int(nid)
+            for nid, n in nodes.items()
+            if n.get("parent") is None
+        ]
+    for r in roots:
+        _place(r)
+
+    def _draw(nid: int) -> None:
+        nid = int(nid)
+        node = nodes[nid]
+        kids = node.get("children") or []
+        h = float(node.get("height") or 0.0)
+        x = x_of[nid]
+        if not kids:
+            label = _clip_label(node.get("label"), 22)
+            ax.text(
+                x,
+                0.0,
+                f"\n{label}",
+                ha="center",
+                va="top",
+                fontsize=8,
+                color=INK,
+                rotation=25,
+            )
+            return
+        child_xs = []
+        for c in kids:
+            c = int(c)
+            _draw(c)
+            ch = float(nodes[c].get("height") or 0.0)
+            cx = x_of[c]
+            child_xs.append(cx)
+            ax.plot([cx, cx], [ch, h], color=INK, lw=1.0)
+        ax.plot([min(child_xs), max(child_xs)], [h, h], color=INK, lw=1.2)
+        # Bridge up to this node's parent (non-ultrametric splits)
+        p = node.get("parent")
+        if p is not None and int(p) in nodes:
+            ph = float(nodes[int(p)].get("height") or 0.0)
+            if ph > h:
+                ax.plot([x, x], [h, ph], color=INK, lw=1.0)
+        kl = node.get("kl")
+        if kl is not None and float(kl) > 0:
+            ax.text(
+                x,
+                h,
+                f"  |KL|={float(kl):.3g}",
+                ha="left",
+                va="bottom",
+                fontsize=7,
+                color=MUTED,
+            )
+
+    for r in roots:
+        _draw(r)
+
+    ymax = max(
+        (float(n.get("height") or 0.0) for n in nodes.values()),
+        default=0.0,
+    )
+    pad = 0.08 * (ymax + 1.0)
+    ax.set_ylim(-pad, ymax * 1.15 + 1e-6)
+    if x_of:
+        ax.set_xlim(min(x_of.values()) - 0.6, max(x_of.values()) + 0.6)
+    ax.set_ylabel("|KL̂(parent ‖ mix)| under parent mass")
+    ax.set_xticks([])
+    tidy(ax)
+    ax.set_title(
+        title
+        or "Subject-grain dendrogram (splits; abandoned on merge)",
+        loc="left",
+        color=INK,
+        fontsize=11,
+    )
     fig.tight_layout()
     return save(fig, path, show=show)

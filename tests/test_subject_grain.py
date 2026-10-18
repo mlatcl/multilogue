@@ -108,6 +108,54 @@ def test_propose_split_increases_k():
     assert out["parent_component_fit"] is not None
     assert "mu" in out["parent_component_fit"]
     assert out["local_fit"]["k"] == 2
+    # Children ordered by soft mass: first child id has ≥ mass of second
+    kids = out["dirty"]
+    mass = out["fit"]["responsibilities"].sum(axis=0)
+    assert mass[kids[0]] >= mass[kids[1]] - 1e-9
+    assert "kl" in out
+    assert np.isfinite(out["kl"])
+
+
+def test_parent_split_kl_and_dendrogram_record():
+    from multilogue.subject_grain import (
+        dendrogram_abandon,
+        dendrogram_new,
+        dendrogram_record_split,
+        parent_split_kl,
+    )
+
+    X, y = _planted_blobs(seed=11, k=2, n_per=35)
+    fit = mppca_fit(X, k=1, sigma2=0.12, seed=11, max_iter=25)
+    out = propose_split(X, fit, 0, n_children=2, seed=11)
+    local = out["local_fit"]
+    kl = parent_split_kl(
+        X,
+        out["parent_mass"],
+        out["parent_component_fit"],
+        local["component_fits"],
+        local["pi"],
+        float(fit["sigma2"]),
+    )
+    assert np.isfinite(kl)
+    assert abs(kl - out["kl"]) < 1e-9
+
+    tree = dendrogram_new(1, labels={0: "root"})
+    tree = dendrogram_record_split(
+        tree,
+        parent_topic=0,
+        child_topics=out["dirty"],
+        kl=out["kl"],
+        labels={0: "big", 1: "small"},
+    )
+    assert tree["active"]
+    splits = [n for n in tree["nodes"].values() if n["kind"] == "split"]
+    assert len(splits) == 1
+    assert splits[0]["kl"] == abs(float(out["kl"]))
+    leaves = [n for n in tree["nodes"].values() if n["kind"] == "leaf"]
+    assert len(leaves) == 2
+    abandoned = dendrogram_abandon(tree, reason="merge")
+    assert abandoned["active"] is False
+    assert abandoned["nodes"] == {}
 
 
 def test_merge_then_split_recovers_separable_structure():

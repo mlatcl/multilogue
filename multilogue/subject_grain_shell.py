@@ -17,6 +17,10 @@ import pandas as pd
 from .config import dump_json
 from .mppca import example_phrases_for_soft_topics
 from .subject_grain import (
+    dendrogram_abandon,
+    dendrogram_new,
+    dendrogram_record_split,
+    dendrogram_sync_labels,
     lock_subject_grain,
     profile_sigma2_holding_responsibilities,
     propose_merge,
@@ -179,6 +183,8 @@ class SubjectGrainShell:
         for j in range(k):
             if is_placeholder_label(self.labels.get(j), j):
                 self.dirty.add(j)
+        # Split-only dendrogram (KL branch lengths); abandoned on merge
+        self.dendrogram: dict[str, Any] = dendrogram_new(k, labels=self.labels)
         if name_initial:
             if self.label_work is None:
                 raise ValueError(
@@ -322,6 +328,7 @@ class SubjectGrainShell:
                     if self.pending_proposal is None
                     else deepcopy(self.pending_proposal)
                 ),
+                "dendrogram": deepcopy(self.dendrogram),
             }
         )
 
@@ -361,6 +368,8 @@ class SubjectGrainShell:
             sources.append(src)
         source_labels = [str(s["label"]) for s in sources]
         self._push_undo()
+        # Divisive dendrogram is invalid once any merge happens
+        self.dendrogram = dendrogram_abandon(self.dendrogram, reason="merge")
         out = propose_merge(
             self.X,
             self.fit,
@@ -576,6 +585,7 @@ class SubjectGrainShell:
         self.dirty = remapped_dirty
         self.action_history.append(out["history_entry"])
         self.locked = None
+        kl = float(out.get("kl") or 0.0)
         self.pending_proposal = {
             "kind": "split",
             "parent_id": i,
@@ -584,9 +594,18 @@ class SubjectGrainShell:
             "parent_mass": np.asarray(out["parent_mass"], dtype=float).copy(),
             "children": children,
             "local_fit": out.get("local_fit"),
+            "kl": kl,
             "named": False,
             "accepted": False,
         }
+        if self.dendrogram.get("active"):
+            self.dendrogram = dendrogram_record_split(
+                self.dendrogram,
+                parent_topic=i,
+                child_topics=children,
+                kl=kl,
+                labels=self.labels,
+            )
         do_name = (
             bool(name_children)
             if name_children is not None
@@ -684,6 +703,8 @@ class SubjectGrainShell:
         self.locked = snap["locked"]
         self.parent_of = snap.get("parent_of") or {}
         self.pending_proposal = snap.get("pending_proposal")
+        if "dendrogram" in snap:
+            self.dendrogram = snap["dendrogram"]
         return True
 
     def name_dirty(self, label_work: LabelWork | None = None) -> list[int]:
@@ -740,7 +761,24 @@ class SubjectGrainShell:
         for c in named:
             self.dirty.discard(c)
         self.last_naming_errors = errors
+        if named and self.dendrogram.get("active"):
+            self.dendrogram = dendrogram_sync_labels(self.dendrogram, self.labels)
         return named
+
+    def dendrogram_view(
+        self,
+        *,
+        path: str | Path | None = None,
+        show: bool = False,
+    ):
+        """Draw the split-only KL dendrogram (matplotlib)."""
+        from .viz import plot_grain_dendrogram
+
+        return plot_grain_dendrogram(
+            self.dendrogram,
+            path=path,
+            show=show,
+        )
 
     def lock(
         self,
@@ -1008,6 +1046,7 @@ class SubjectGrainShell:
         status = W.HTML()
         proposal_box = W.HTML()
         fig_out = W.Output()
+        dendro_out = W.Output()
         cat_out = W.Output()
 
         def _current_focus() -> int:
@@ -1158,14 +1197,15 @@ class SubjectGrainShell:
                     plt.close("all")
                 except Exception:  # noqa: BLE001
                     pass
-                from .viz import plotly_available
+                from .viz import plotly_available, uq_click_readout_panel
 
                 if plotly_available():
                     fig = self.fit_view(
                         focus=focus, show=False, interactive=True
                     )
                     if fig is not None:
-                        display(fig)
+                        _fw, _box, row = uq_click_readout_panel(fig)
+                        display(row)
                 else:
                     self.fit_view(
                         focus=focus, show=True, interactive=False
@@ -1176,10 +1216,22 @@ class SubjectGrainShell:
                 clear_output(wait=True)
                 display(self.catalogue())
 
+        def _redraw_dendrogram() -> None:
+            with dendro_out:
+                clear_output(wait=True)
+                try:
+                    import matplotlib.pyplot as plt
+
+                    plt.close("all")
+                except Exception:  # noqa: BLE001
+                    pass
+                self.dendrogram_view(show=True)
+
         def _refresh_outputs(*, prefer_focus: int | None = None) -> None:
             """After structural edits: sync selectors, redraw plane, refresh catalogue."""
             _sync_selectors(prefer=prefer_focus)
             _redraw_fit(_current_focus())
+            _redraw_dendrogram()
             _refresh_catalogue()
 
         def _on_focus_change(change) -> None:
@@ -1548,6 +1600,7 @@ class SubjectGrainShell:
                 controls,
                 buttons,
                 fig_out,
+                dendro_out,
                 cat_out,
             ]
         )

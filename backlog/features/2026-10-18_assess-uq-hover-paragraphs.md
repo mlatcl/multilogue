@@ -65,3 +65,8 @@ notebook 03.
 ### 2026-10-18
 
 Implemented Plotly hover path; backlog Completed.
+
+### 2026-10-18
+
+UX tweak: smaller markers; click fills a side HTML readout; split children
+ordered by soft mass (largest first / default selection).
