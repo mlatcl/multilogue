@@ -374,14 +374,22 @@ def example_phrases_for_soft_topics(
     *,
     n_top: int = 12,
     n_sample: int = 6,
+    min_responsibility: float | None = None,
     seed: int = 0,
 ) -> list[dict]:
-    """Top-mass exemplars per topic for LLM / report harden views.
+    """Membership-threshold exemplars per topic for LLM / report harden views.
 
-    Ranks phrases by responsibility to each component, takes the top
-    ``n_top``, then optionally samples ``n_sample`` further phrases from
-    the remainder (deterministic under ``seed``). Empty components
-    (near-zero column mass) return an empty example list.
+    A phrase is eligible for topic ``c`` only when its soft responsibility
+    ``R[i, c]`` clears ``min_responsibility``. When that argument is ``None``
+    (default), the threshold is ``1/k`` — at least uniform mass under ``k``
+    topics. Pass an absolute float to override.
+
+    Among eligible phrases, take the highest-mass ones up to ``n_top`` (a
+    *cap*, not a fixed count), then optionally sample up to ``n_sample`` more
+    from the remainder (deterministic under ``seed``).
+
+    Topics with no eligible phrases — including near-empty components —
+    return an empty example list rather than padding with low-mass text.
 
     This is a **harden view** for labelling boundaries — not a change to
     the soft topic geometry.
@@ -397,6 +405,16 @@ def example_phrases_for_soft_topics(
             f"phrases length {len(phrases)} != responsibilities rows {R.shape[0]}"
         )
     n, k = R.shape
+    if k <= 0:
+        return []
+    if min_responsibility is None:
+        thr = 1.0 / float(k)
+    else:
+        thr = float(min_responsibility)
+        if thr < 0 or thr > 1:
+            raise ValueError(
+                f"min_responsibility must be in [0, 1], got {min_responsibility!r}"
+            )
     rng = np.random.default_rng(seed)
     units: list[dict] = []
     for c in range(k):
@@ -404,20 +422,21 @@ def example_phrases_for_soft_topics(
         if float(mass.sum()) <= 0:
             units.append({"cluster": c, "examples": [], "key": f"{c}|empty"})
             continue
-        order = np.argsort(-mass, kind="mergesort")  # stable
-        top_idx = order[: min(n_top, n)]
+        eligible = np.flatnonzero(mass >= thr)
+        if eligible.size == 0:
+            units.append({"cluster": int(c), "examples": [], "key": f"{c}|below_thr"})
+            continue
+        # Highest responsibility first among phrases that clear the threshold
+        order = eligible[np.argsort(-mass[eligible], kind="mergesort")]
+        take_top = min(int(n_top), order.size)
+        top_idx = order[:take_top]
         examples = [phrases[i] for i in top_idx]
-        rest_idx = order[n_top:]
-        if n_sample > 0 and len(rest_idx) > 0:
-            # Prefer phrases that still have some mass on this topic
-            rest_mass = mass[rest_idx]
-            eligible = rest_idx[rest_mass > 0]
-            if len(eligible) > 0:
-                take = min(n_sample, len(eligible))
-                chosen = rng.choice(eligible, size=take, replace=False)
-                # Stable order by descending mass among samples
-                chosen = chosen[np.argsort(-mass[chosen], kind="mergesort")]
-                examples.extend(phrases[i] for i in chosen)
+        rest_idx = order[take_top:]
+        if n_sample > 0 and rest_idx.size > 0:
+            take = min(int(n_sample), rest_idx.size)
+            chosen = rng.choice(rest_idx, size=take, replace=False)
+            chosen = chosen[np.argsort(-mass[chosen], kind="mergesort")]
+            examples.extend(phrases[i] for i in chosen)
         key = f"{c}|" + sha("|".join(str(p) for p in examples))[:10]
         units.append({"cluster": int(c), "examples": examples, "key": key})
     return units

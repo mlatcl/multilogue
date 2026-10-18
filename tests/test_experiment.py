@@ -26,14 +26,18 @@ def test_fake_client_no_network():
 
 
 def test_validation_experiment_tmp(tmp_path: Path):
+    from multilogue.extract import phrases_from_units
+
+    units = format_tagged_units(n_docs_per_group=3, units_per_doc=2)
+    phrases = phrases_from_units(units, extra_fields=["group", "format"])
     summary = run_validation_experiment(
         tmp_path / "run",
-        n_docs_per_group=3,
-        units_per_doc=2,
+        units=units,
+        phrases=phrases,
         k=3,
         quiet=True,
     )
-    assert summary["synthetic"] is True
+    assert summary["synthetic"] is False
     assert summary["n_units"] == 12
     assert summary["n_phrases"] >= 4
     assert (tmp_path / "run" / "tables" / "phrases_clustered.csv").exists()
@@ -74,16 +78,21 @@ def test_gold_argument_format_compare():
 
 
 def test_formats_complexity_demo_tmp(tmp_path: Path):
+    from multilogue.experiment import format_tagged_units
+    from multilogue.extract import phrases_from_units
+
+    units = format_tagged_units(n_docs_per_group=3, units_per_doc=2)
+    phrases = phrases_from_units(units, extra_fields=["group", "format"])
     summary = run_formats_complexity_demo(
         tmp_path / "fmt",
-        n_docs_per_group=3,
-        units_per_doc=2,
+        units=units,
+        phrases=phrases,
         k=4,
         lens_runs=2,
         quiet=True,
     )
-    assert summary["synthetic"] is True
-    assert summary["formats"] == ["workshop", "survey"]
+    assert summary["synthetic"] is False
+    assert summary["formats"] == ["survey", "workshop"]
     tables = tmp_path / "fmt" / "tables"
     assert (tables / "group_compare_format_lenses.csv").exists()
     assert (tables / "multiverse_format_gap.csv").exists()

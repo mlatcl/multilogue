@@ -2,6 +2,7 @@
 
 from . import access
 from .access import list_sources, load, load_units
+from .clients import resolve_study_client
 from .dummy import FakeClient, make_units
 from .experiment import run_validation_experiment
 from .llm import LogClient, ReplayClient, ReplayMiss, StageRunner
@@ -33,6 +34,7 @@ __all__ = [
     "make_units",
     "parse_json",
     "quote_support",
+    "resolve_study_client",
     "run_multiverse",
     "run_validation_experiment",
     "sha",

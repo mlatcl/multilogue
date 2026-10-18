@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import Any, Callable
+from typing import Any, Callable  # Any used by phrases_from_units
 
 import pandas as pd
 
@@ -87,6 +87,51 @@ def make_extract_work(
         return {"items": out, "stats": dict(stats)}
 
     return work
+
+
+def phrases_from_units(
+    units: list[dict[str, Any]],
+    *,
+    kind_key: str = "code",
+    default_kind: str = "statement",
+    extra_fields: list[str] | None = None,
+    max_chars: int | None = 500,
+) -> pd.DataFrame:
+    """Build a phrase table from Access units without an LLM extract step.
+
+    Used for pedagogy and offline Address on public corpora (e.g. CIMT) when
+    extraction is deferred or a live model is unavailable. Each unit becomes
+    one phrase; ``kind`` comes from ``meta[kind_key]`` when present.
+    """
+    extra = extra_fields or ["group", "format"]
+    rows: list[dict[str, Any]] = []
+    for u in units:
+        text = (u.get("extract_text") or u.get("text") or "").strip()
+        if not text:
+            continue
+        if max_chars is not None and len(text) > max_chars:
+            text = text[: max_chars - 1].rstrip() + "…"
+        meta = u.get("meta") or {}
+        kind = meta.get(kind_key) or u.get("kind") or default_kind
+        if kind in (None, "", "non-arg"):
+            kind = default_kind
+        row: dict[str, Any] = {
+            "phrase_id": str(u.get("unit_id")),
+            "kind": str(kind),
+            "unit_id": u.get("unit_id"),
+            "doc_id": u.get("doc_id"),
+            "phrase": text,
+            "quote": text,
+            "verified": True,
+            "quote_support": 1.0,
+        }
+        for f in extra:
+            if f in u:
+                row[f] = u.get(f)
+            elif f in meta:
+                row[f] = meta.get(f)
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def phrase_table(

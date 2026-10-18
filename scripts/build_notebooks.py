@@ -10,7 +10,8 @@ Style (talk-notebook pattern):
   - Title, abstract, then methodological prose with equations
   - Separate cells for library imports, computation, and figures
   - Interpretive markdown after each visualisation
-  - Offline FakeClient path always runs; Colab bootstrap in setup
+  - Public CIMT corpus by default; Colab bootstrap in setup
+  - Offline Address uses phrases_from_units (no synthetic Civic units)
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ import nbformat as nbf
 GITHUB_REPO = "mlatcl/multilogue"
 GITHUB_BRANCH = "main"
 AUTHOR = "[Neil D. Lawrence](http://inverseprobability.com)"
-DATE = "2026-10-17"
+DATE = "2026-10-18"
 
 # Colab / path bootstrap only — no scientific imports here.
 SETUP = r'''#@title Setup (run first)
@@ -61,6 +62,24 @@ if importlib.util.find_spec("ot") is None:
 print("POT available")
 '''
 
+# Prefer OpenAI from repo-root .env (cwd may be notebooks/). Fake only if forced.
+RESOLVE_CLIENT = r'''
+from multilogue.clients import (
+    resolve_study_client, TOPIC_LABEL_PROMPT, TOPIC_LABEL_SYSTEM,
+)
+from multilogue.config import load_dotenv
+
+root = FIG.parent
+env_path = load_dotenv()
+client, models, client_kind = resolve_study_client(
+    log_path=root / "logs" / "llm.jsonl",
+)
+print(
+    f"LLM client: {client_kind} · embed={models['embed']} · label={models['label']}"
+    + (f" · .env={env_path}" if env_path else " · .env=(not found)")
+)
+'''
+
 
 def colab_badge(name: str) -> str:
     url = (
@@ -89,6 +108,26 @@ def md(src: str) -> tuple[str, str]:
 def code(src: str) -> tuple[str, str]:
     return ("code", src.strip() + "\n")
 
+
+
+# Shared Access: CIMT Bonn cycling dialogue vs survey (no synthetic civic units).
+LOAD_CIMT_PAIR = r"""
+import os
+os.environ.setdefault("MULTILOGUE_ACCESS_YES", "1")
+from multilogue.experiment import load_cimt_format_pair
+from multilogue.extract import phrases_from_units
+
+units, cimt_meta = load_cimt_format_pair(max_units_per=40)
+if units is None:
+    raise RuntimeError(
+        "CIMT Access failed: "
+        + str(cimt_meta.get("error", "unknown"))
+        + ". Need network once to populate MULTILOGUE_DATAPATH / ~/.cache/multilogue."
+    )
+print(cimt_meta)
+phrases = phrases_from_units(units, extra_fields=["group", "format"])
+print(f"{len(units)} units → {len(phrases)} phrases (unit-as-phrase; LLM extract optional)")
+"""
 
 NOTEBOOKS: dict[str, list[tuple[str, str]]] = {}
 
@@ -132,9 +171,8 @@ and text. Optional fields carry context for quote checks and free-form metadata
 (group labels, format tags, gold codes). Downstream stages should treat
 everything beyond the three required fields as opaque until Address asks for it.
 
-Why this shape? A consultation CSV, a Polis export, and a synthetic generator
-must feed the same Address path. The reusable method lives *above* the file
-format.
+Why this shape? A consultation CSV, a Polis export, and a CIMT TSV must feed
+the same Address path. The reusable method lives *above* the file format.
 """
     ),
     code(
@@ -147,7 +185,7 @@ from multilogue.protocols import Unit
     code(
         """
 print("Registered sources:", list_sources())
-bundle = load("synthetic", n_docs_per_group=2, units_per_doc=2)
+bundle = load("cimt", process="Cycling-Dialogue-Bonn", max_units=20)
 units = bundle["units"]
 print(f"{len(units)} units; license={bundle['license']!r}")
 display(units[0])
@@ -155,9 +193,9 @@ display(units[0])
     ),
     md(
         """
-The first unit above is a dictionary conforming to the contract. Synthetic loaders
-exist so pedagogy and CI never need a network or an API key. Real open corpora
-use the same call shape.
+The first unit above is a dictionary conforming to the contract. Pedagogy uses
+**public** open corpora (CIMT by default). Downloads land in a gitignored cache
+(`MULTILOGUE_DATAPATH` or `~/.cache/multilogue`), never in the repository.
 """
     ),
     md(
@@ -166,16 +204,14 @@ use the same call shape.
 
 Following the old `pods.datasets.<name>()` pattern, each public corpus is a named
 loader. `load(name, **kwargs)` returns units plus citation and licence metadata.
-Downloads land in a gitignored cache (`MULTILOGUE_DATAPATH` or
-`~/.cache/multilogue`), never in the repository.
 """
     ),
     code(
         """
 import pandas as pd
 
-# Default: generated units (no download). Uncomment Polis for a real CC BY corpus.
-bundle = load("synthetic", n_docs_per_group=3, units_per_doc=3)
+# Default public corpus: CIMT Bonn cycling dialogue. Polis is another CC BY option.
+bundle = load("cimt", process="Cycling-Dialogue-Bonn", max_units=80)
 # bundle = load("polis", conversation="vtaiwan.uberx", max_units=80)
 
 units = bundle["units"]
@@ -236,7 +272,7 @@ Assess is work that remains valid if the downstream research question changes:
 sizes, emptiness, crude vocabulary, coverage across documents. Anything that
 needs a concern/benefit taxonomy, a framing lens, or a headline metric belongs
 in Address. This notebook teaches that boundary and runs the Assess helpers on
-synthetic units.
+the public CIMT cycling corpus.
 """,
         )
     ),
@@ -272,20 +308,19 @@ calling an LLM is expensive — but cost alone does not decide the phase.
     code(
         """
 from IPython.display import display
-from multilogue.access import load
 from multilogue.assess_base import (
     unit_size_table, docs_per_group, empty_unit_flags, token_frequency,
 )
 from multilogue import viz
 """
     ),
+    code(LOAD_CIMT_PAIR),
     code(
         """
-units = load("synthetic", n_docs_per_group=4, units_per_doc=3)["units"]
 sizes = unit_size_table(units)
 empty = empty_unit_flags(units, min_words=4)
 print(f"units={len(units)}; below min_words={len(empty)}")
-display(docs_per_group(units, "group"))
+display(docs_per_group(units, "format"))
 display(token_frequency([u["text"] for u in units], top_n=15))
 """
     ),
@@ -294,14 +329,14 @@ display(token_frequency([u["text"] for u in units], top_n=15))
 ## Diagnostics
 
 Unit-size histograms catch OCR debris and truncated chunks before any model
-call. Document counts by group show whether later *document-weighted*
+call. Document counts by format show whether later *document-weighted*
 comparisons will rest on a thin sample.
 """
     ),
     code(
         """
-viz.unit_size_hist(sizes, group_col="group", units=units, path=FIG / "01_unit_sizes.png")
-viz.docs_per_group_bars(docs_per_group(units, "group"), path=FIG / "01_docs.png")
+viz.unit_size_hist(sizes, group_col="format", units=units, path=FIG / "01_unit_sizes.png")
+viz.docs_per_group_bars(docs_per_group(units, "format"), path=FIG / "01_docs.png")
 """
     ),
     md(
@@ -336,7 +371,8 @@ Address begins when we ask a model for structured points. Multilogue keeps
 extraction generic: a kind name, a prompt template, a sentinel for “nothing
 here”, and an optional quote-support gate so each phrase is grounded in the
 speaker's words. Checkpoints make reruns resume without paying twice. This
-notebook teaches those ideas with FakeClient so pedagogy never needs an API key.
+notebook teaches those ideas on the public CIMT corpus; offline pedagogy uses
+`phrases_from_units` so we never invent civic text.
 """,
         )
     ),
@@ -348,7 +384,9 @@ Extraction is the first Address stage. The library does not hard-code
 “concern” or “benefit”: those are *kinds* supplied by the consumer. What
 multilogue owns is the machinery — parse items from a model response, verify
 quotes against unit text, and persist results under a fingerprint of prompt +
-model so the same work is not repeated.
+model so the same work is not repeated. When a live model is unavailable,
+`phrases_from_units` builds a phrase table from Access units (one phrase per
+unit; kind from gold `meta.code` when present).
 """
     ),
     md(
@@ -374,61 +412,30 @@ high enough to catch fabrications, low enough to tolerate light paraphrase.
     ),
     code(
         """
-from collections import defaultdict
 from IPython.display import display
-from multilogue.access import load
-from multilogue.dummy import FakeClient
-from multilogue.extract import make_extract_work, phrase_table, yield_report
-from multilogue.llm import StageRunner
 from multilogue.text import quote_support
 from multilogue import viz
 """
     ),
+    code(LOAD_CIMT_PAIR),
     code(
         """
-units = load("synthetic", n_docs_per_group=3, units_per_doc=3)["units"]
-units_by_id = {u["unit_id"]: u for u in units}
-client = FakeClient()
-runner = StageRunner(
-    FIG.parent / "ckpt_extract", FIG.parent / "logs_extract",
-    max_workers=2, sleep=lambda _: None,
-)
-
-extraction = {}
-for kind in ("concern", "benefit"):
-    work = make_extract_work(
-        client, kind=kind, system="extract",
-        user_for_unit=lambda u, k=kind: u["text"],
-        model="fake-small", sentinel=f"NO_{kind.upper()}", quote_threshold=0.8,
-    )
-    extraction[kind] = runner.run(
-        f"extract_{kind}", units, lambda u: u["unit_id"], work,
-        f"extract|{kind}|fake-small|v1", quiet=True,
-    )
-
-phrases = phrase_table(
-    extraction, units_by_id, kinds=["concern", "benefit"],
-    extra_unit_fields=["group"],
-)
 display(phrases.head())
-"""
-    ),
-    code(
-        """
-by_group = defaultdict(list)
-for u in units:
-    by_group[u["group"]].append(u["unit_id"])
-yd = yield_report(extraction, dict(by_group))
+yd = (
+    phrases.groupby(["format", "kind"], dropna=False)
+    .size()
+    .rename("kept")
+    .reset_index()
+)
 display(yd)
-viz.yield_bars(yd, path=FIG / "02_yield.png")
+viz.yield_bars(yd.rename(columns={"format": "group"}), path=FIG / "02_yield.png")
 """
     ),
     md(
         """
-Yield bars show how many units produced at least one phrase of each kind, by
-group. FakeClient returns bank phrases that appear in the synthetic units, so
-quote checks can fire without a paid model. With a real client the same
-checkpoint layout applies.
+Yield counts show how many unit-as-phrases of each kind appear by format.
+With a live client the same columns come from `phrase_table` after
+`StageRunner` extract; the Access corpus stays public either way.
 """
     ),
     code(
@@ -438,7 +445,7 @@ span = " ".join(demo_text.split()[:8])
 print("support(exact span):", round(quote_support(span, demo_text), 3))
 print("support(noise):", round(quote_support("completely unrelated words", demo_text), 3))
 if "verified" in phrases.columns:
-    display(phrases.groupby(["group", "kind"]).verified.mean().rename("pct_verified"))
+    display(phrases.groupby(["format", "kind"]).verified.mean().rename("pct_verified"))
 """
     ),
     md(
@@ -506,9 +513,6 @@ document EMD on soft histograms live in notebook 08.
         """
 from IPython.display import display
 import numpy as np
-from multilogue.access import load
-from multilogue.dummy import FakeClient
-from multilogue.extract import make_extract_work, phrase_table
 from multilogue.llm import StageRunner
 from multilogue.cluster import (
     Embedder, make_label_work, make_lens_work, resolve_lenses,
@@ -522,28 +526,17 @@ from multilogue.mppca import (
 from multilogue import viz
 """
     ),
+    code(LOAD_CIMT_PAIR),
+    code(RESOLVE_CLIENT),
     code(
         """
-units = load("synthetic", n_docs_per_group=3, units_per_doc=3)["units"]
-units_by_id = {u["unit_id"]: u for u in units}
-client = FakeClient()
-root = FIG.parent
-runner = StageRunner(root / "ckpt_cl", root / "logs_cl", max_workers=2, sleep=lambda _: None)
-extraction = {}
-for kind in ("concern", "benefit"):
-    work = make_extract_work(
-        client, kind=kind, system="e",
-        user_for_unit=lambda u, k=kind: u["text"], model="fake-small",
-        sentinel=f"NO_{kind.upper()}",
-    )
-    extraction[kind] = runner.run(
-        f"ex_{kind}", units, lambda u: u["unit_id"], work, f"ex|{kind}", quiet=True,
-    )
-phrases = phrase_table(
-    extraction, units_by_id, kinds=["concern", "benefit"], extra_unit_fields=["group"],
-)
-k = 4
-embedder = Embedder(root / "emb", client, model="fake-emb")
+# client_kind comes from resolve_study_client (openai, or fake only if forced).
+_runner_kw = {"max_workers": 2}
+if client_kind == "fake":
+    _runner_kw["sleep"] = lambda _: None
+runner = StageRunner(root / "ckpt_cl", root / "logs_cl", **_runner_kw)
+k = min(4, max(2, len(phrases) // 3))
+embedder = Embedder(root / "emb", client, model=models["embed"])
 E = np.asarray(embedder(phrases.phrase.tolist()), float)
 fit = mppca_fit(E, k=k, sigma2=DEFAULT_TOPIC_SIGMA2, seed=0)
 R = fit["responsibilities"]
@@ -572,7 +565,121 @@ viz.embedding_scatter(E, phrases["cluster"], path=FIG / "03_pca_clusters.png")
         """
 Cluster-size bars use the MAP harden view so empty topics are visible. Soft
 geometry remains in $R$. Hopeless overlap in the PCA scatter suggests revisiting
-$k$ or the phrase set before interpreting shares.
+$k$ or the phrase set before interpreting shares — that decision is **Assess**,
+not a format-gap maximisation.
+"""
+    ),
+    md(
+        """
+## Assess — interactive subject grain (Bishop–Tipping)
+
+Choosing how many subjects belong in the catalogue is closer to “what is the
+human grain of this corpus?” than to “which quote threshold?”. Following
+Bishop & Tipping’s hierarchical visualisation (TPAMI 1998), the analyst sees
+**both**:
+
+1. **Geometry** — the **local** $U_q$ plane of the topic you are considering
+   splitting (not a global PCA of the whole embedding cloud). Soft mass on
+   that component sets point opacity; the panel updates when you change the
+   split target.
+2. **Semantics** — an LLM catalogue of the same bags (exemplars + names).
+
+Neither view replaces the other. Merge / split / keep is human feedback — not
+automatic maximisation of a study metric $\\ell$. Under *assess without the
+question*, this loop is Assess; lenses, format gap, and multiverse under a
+**locked** catalogue are Address.
+
+**Catalogue first:** the shell names every topic once (LLM) so the table shows
+real subject labels — not ``topic 0``. The widget has a **label prompt** text
+box and a **model** dropdown (keep ``<<PHRASES>>``). **Apply & re-name all**
+pushes the new prompt into the live labelling work and re-labels every topic.
+
+Select ≥2 topics in **Merge** to preview the *merged* $U_q$ with the originals
+listed (means + ellipses); **Propose merge** then Accept (or Undo). A split is
+likewise a *proposal*: child means in the **parent** $U_q$. Accept when happy.
+"""
+    ),
+    code(
+        """
+import os
+from multilogue.subject_grain_shell import SubjectGrainShell, ipywidgets_available
+
+# label_client= lets the widget Textarea / model Dropdown rebuild label_work
+shell = SubjectGrainShell(
+    E, fit, phrases, phrase_col="phrase", seed=0,
+    label_client=client,
+    label_system=TOPIC_LABEL_SYSTEM,
+    label_prompt=TOPIC_LABEL_PROMPT,
+    label_model=models["label"],
+    name_initial=True,
+)
+print("initial catalogue labels:", {j: shell.labels[j] for j in shell.topic_ids()})
+# Widgets for live try-combinations; CI / smoke force the scripted path.
+use_widgets = (
+    ipywidgets_available()
+    and os.environ.get("MULTILOGUE_SUBJECT_GRAIN_WIDGETS", "1") != "0"
+)
+if use_widgets:
+    print(
+        "Layer B: select merge candidates (live merged U_q) / Propose split → Accept"
+    )
+    shell.display()
+else:
+    print("Layer A scripted path (no widgets / MULTILOGUE_SUBJECT_GRAIN_WIDGETS=0)")
+    display(shell.catalogue())
+    # Local U_q of the topic under split consideration (Bishop–Tipping channel)
+    focus = 0
+    shell.fit_view(focus=focus, path=FIG / "03_topic_fit_view.png", show=True)
+    # Demo propose-merge (merged U_q + originals) then undo
+    if shell.k >= 3:
+        shell.merge([0, 1])
+        mid = int(shell.pending_proposal["merged_id"])
+        print(
+            "after propose merge: k =", shell.k,
+            "merged_id =", mid,
+            "sources =", shell.pending_proposal.get("source_labels"),
+        )
+        shell.fit_view(
+            focus=mid, path=FIG / "03_topic_fit_after_merge.png", show=True
+        )
+        display(shell.catalogue())
+        shell.undo()
+        print("after undo: k =", shell.k)
+    # Demo proposed split: parent U_q + child means, lineage in catalogue
+    if shell.k >= 2:
+        parent = 0
+        parent_name = shell.labels.get(parent, f"topic {parent}")
+        shell.split(parent)
+        print(
+            "proposed split of", repr(parent_name),
+            "→ children", shell.proposed_topic_ids(),
+            "parent_of", {c: shell.parent_of.get(c) for c in shell.proposed_topic_ids()},
+            "pending=", shell.pending_proposal is not None,
+        )
+        shell.fit_view(
+            focus=shell.proposed_topic_ids()[0],
+            path=FIG / "03_proposed_split.png",
+            show=True,
+        )
+        display(shell.catalogue())
+        print("child labels after split:", {
+            c: shell.labels[c] for c in shell.proposed_topic_ids()
+        })
+        shell.accept_proposal()
+        print("accepted; parent_of =", shell.parent_of)
+    lock = shell.lock(
+        path=root / "clusters" / "subject_grain_lock.json",
+        k_multiverse="hold",
+    )
+    print("locked subject grain:", lock["primary_k"], lock["k_multiverse"])
+    display(lock)
+"""
+    ),
+    md(
+        """
+Lock before Address spend: the artefact records `primary_k` and a hold /
+$\\pm 1$ multiverse policy. Wide $k$ grids belong in an explicit one-factor
+resolution sweep — not in the default factorial multiverse (see notebook 09).
 """
     ),
     md(
@@ -581,23 +688,40 @@ $k$ or the phrase set before interpreting shares.
 
 Exemplars are ranked by soft mass on each topic; the LLM never sees raw
 responsibility matrices. Researchers may edit the lens mapping afterwards — the
-first pass stays blind.
+first pass stays blind. After a subject-grain lock, labels here name the
+*locked* leaves.
 """
     ),
     code(
         """
+# Re-bind fit / R from the shell if the scripted path ran; widgets leave `fit` as initial.
+R = shell.responsibilities
+fit = shell.fit
+means = fit["means"]
+k = shell.k
+labels = responsibilities_to_labels(R)
+phrases = phrases.copy()
+phrases["cluster"] = labels
+valid = labels >= 0
+phrases["centroid_sim"] = 0.0
+phrases.loc[valid, "centroid_sim"] = (E[valid] * means[labels[valid]]).sum(1)
+
 cluster_units = example_phrases_for_soft_topics(
     phrases.phrase.tolist(), R, n_top=8, n_sample=2, seed=0,
 )
 # Drop empty components for labelling
 cluster_units = [cu for cu in cluster_units if cu["examples"]]
+from multilogue.clients import label_stage_fingerprint
 lab = runner.run(
     "labels", cluster_units, lambda cu: cu["key"],
     make_label_work(
-        client, system="label",
-        prompt_template="Label these:\\n<<PHRASES>>", model="fake-small",
+        client, system=TOPIC_LABEL_SYSTEM,
+        prompt_template=TOPIC_LABEL_PROMPT, model=models["label"],
     ),
-    "labels|v1", quiet=True,
+    label_stage_fingerprint(
+        models["label"], system=TOPIC_LABEL_SYSTEM, prompt=TOPIC_LABEL_PROMPT,
+    ),
+    quiet=True,
 )
 names = {
     cu["cluster"]: lab.get(cu["key"], {}).get("label", f"cluster {cu['cluster']}")
@@ -611,9 +735,9 @@ lens_runs = runner.run(
     "lenses", [1, 2], lambda r: str(r),
     make_lens_work(
         client, system="lens", prompt_template="Group:\\n<<CLUSTERS>>",
-        cluster_description=cl_desc, model="fake-small", k=k,
+        cluster_description=cl_desc, model=models["label"], k=k,
     ),
-    f"lenses|{cl_desc[:60]}", quiet=True,
+    f"lenses|{models['label']}", quiet=True,
 )
 mapping, edited = resolve_lenses(k, lens_runs)
 phrases["lens"] = phrases["cluster"].map(mapping)
@@ -636,7 +760,8 @@ viz.embedding_scatter(
 Soft responsibilities $R$ and topic means feed notebook 08 (soft histograms →
 document EMD; soft lenses under a separate fixed $\\sigma^2_{\\mathrm{lens}}$).
 Notebook 04 can still use MAP or lens columns for document-weighted shares; soft
-composition is the CIP-0017 default for transport.
+composition is the CIP-0017 default for transport. Notebook 09 consumes a
+**locked** subject grain under format-gap $\\ell$ (multiverse holds $k$).
 """
     ),
 ]
@@ -676,9 +801,6 @@ give intervals.
         """
 from IPython.display import display
 import numpy as np
-from multilogue.access import load
-from multilogue.dummy import FakeClient
-from multilogue.extract import make_extract_work, phrase_table
 from multilogue.llm import StageRunner
 from multilogue.cluster import (
     Embedder, frozen_or_new_assignments, make_lens_work, resolve_lenses,
@@ -688,39 +810,35 @@ from multilogue.weight import doc_profile, group_compare
 from multilogue import viz
 """
     ),
+    code(LOAD_CIMT_PAIR),
+    code(RESOLVE_CLIENT),
     code(
         """
-units = load("synthetic", n_docs_per_group=4, units_per_doc=3)["units"]
-units_by_id = {u["unit_id"]: u for u in units}
-client = FakeClient()
-root = FIG.parent
-runner = StageRunner(root / "ckpt_w", root / "logs_w", max_workers=2, sleep=lambda _: None)
-extraction = {}
-for kind in ("concern", "benefit"):
-    work = make_extract_work(
-        client, kind=kind, system="e",
-        user_for_unit=lambda u, k=kind: u["text"], model="fake-small",
-        sentinel=f"NO_{kind.upper()}",
-    )
-    extraction[kind] = runner.run(
-        f"ex_{kind}", units, lambda u: u["unit_id"], work, f"ex|{kind}", quiet=True,
-    )
-phrases = phrase_table(
-    extraction, units_by_id, kinds=["concern", "benefit"], extra_unit_fields=["group"],
+_runner_kw = {"max_workers": 2}
+if client_kind == "fake":
+    _runner_kw["sleep"] = lambda _: None
+runner = StageRunner(root / "ckpt_w", root / "logs_w", **_runner_kw)
+k = min(4, max(2, len(phrases) // 3))
+E = np.asarray(
+    Embedder(root / "emb", client, models["embed"])(phrases.phrase.tolist()), float
 )
-k = 4
-E = np.asarray(Embedder(root / "emb", client, "fake-emb")(phrases.phrase.tolist()), float)
 labels, centroids, _ = frozen_or_new_assignments(phrases, E, k, 0, root / "cl")
 phrases = phrases.copy()
 phrases["cluster"] = labels
 phrases["centroid_sim"] = (E * centroids[labels]).sum(1)
 cluster_units = example_phrases_for_clusters(phrases, k, 0)
+from multilogue.clients import label_stage_fingerprint
 lab = runner.run(
     "lab", cluster_units, lambda cu: cu["key"],
     make_label_work(
-        client, system="l", prompt_template="Label:\\n<<PHRASES>>", model="fake-small",
+        client, system=TOPIC_LABEL_SYSTEM,
+        prompt_template=TOPIC_LABEL_PROMPT, model=models["label"],
     ),
-    "lab", quiet=True,
+    label_stage_fingerprint(
+        models["label"], system=TOPIC_LABEL_SYSTEM, prompt=TOPIC_LABEL_PROMPT,
+        extra="weight",
+    ),
+    quiet=True,
 )
 names = {
     cu["cluster"]: lab.get(cu["key"], {}).get("label", f"c{cu['cluster']}")
@@ -731,9 +849,9 @@ lens_runs = runner.run(
     "lens", [1], lambda r: str(r),
     make_lens_work(
         client, system="L", prompt_template="Group:\\n<<CLUSTERS>>",
-        cluster_description=cl_desc, model="fake-small", k=k,
+        cluster_description=cl_desc, model=models["label"], k=k,
     ),
-    "lens", quiet=True,
+    f"lens|{models['label']}|{TOPIC_LABEL_PROMPT}", quiet=True,
 )
 mapping, _ = resolve_lenses(k, lens_runs)
 phrases["lens"] = phrases["cluster"].map(mapping)
@@ -742,15 +860,15 @@ prof = doc_profile(phrases, "lens", sorted(phrases.lens.unique()))
 display(prof.head())
 rng = np.random.default_rng(0)
 cmp = group_compare(
-    phrases, "group", "lens", None, rng, reps=400,
-    groups=sorted(phrases.group.unique()),
+    phrases, "format", "lens", None, rng, reps=400,
+    groups=sorted(phrases.format.unique()),
 )
 display(cmp)
 """
     ),
     code(
         """
-g0, g1 = sorted(phrases.group.unique())[:2]
+g0, g1 = sorted(phrases.format.unique())[:2]
 viz.group_compare_dumbbell(
     cmp, label_col="lens", group_a=g0, group_b=g1,
     path=FIG / "04_group_compare.png",
@@ -881,7 +999,7 @@ NOTEBOOKS["06_validate.ipynb"] = [
 Validation scaffolding is deliberately thin in the library: stratified sampling
 for blind hand-check sheets, Cohen's $\\kappa$ and rank agreement helpers, and an
 HTML evidence-pack shell. Coding schemes and playbooks stay with the study. This
-notebook teaches those tools on synthetic labels and phrases.
+notebook teaches those tools on the public CIMT corpus.
 """,
         )
     ),
@@ -901,12 +1019,9 @@ phrase tables.
 from IPython.display import display, HTML
 import numpy as np
 import pandas as pd
-from multilogue.access import load
 from multilogue.validate import stratified_sample
 from multilogue.weight import kappa, rank_agreement
 from multilogue.report import evidence_pack, write_manifest
-from multilogue.dummy import FakeClient
-from multilogue.extract import make_extract_work, phrase_table
 from multilogue.llm import StageRunner
 from multilogue.cluster import (
     Embedder, frozen_or_new_assignments, example_phrases_for_clusters,
@@ -925,39 +1040,35 @@ other = pd.Series([9.5, 7.0, 6.5, 3.0], index=list("WXYZ"))
 print("rank_agreement:", rank_agreement(main, other))
 """
     ),
+    code(LOAD_CIMT_PAIR),
+    code(RESOLVE_CLIENT),
     code(
         """
-units = load("synthetic", n_docs_per_group=2, units_per_doc=3)["units"]
-units_by_id = {u["unit_id"]: u for u in units}
-client = FakeClient()
-root = FIG.parent
-runner = StageRunner(root / "ckpt_v", root / "logs_v", max_workers=2, sleep=lambda _: None)
-extraction = {}
-for kind in ("concern", "benefit"):
-    work = make_extract_work(
-        client, kind=kind, system="e",
-        user_for_unit=lambda u, k=kind: u["text"], model="fake-small",
-        sentinel=f"NO_{kind.upper()}",
-    )
-    extraction[kind] = runner.run(
-        f"ex_{kind}", units, lambda u: u["unit_id"], work, f"ex|{kind}", quiet=True,
-    )
-phrases = phrase_table(
-    extraction, units_by_id, kinds=["concern", "benefit"], extra_unit_fields=["group"],
+_runner_kw = {"max_workers": 2}
+if client_kind == "fake":
+    _runner_kw["sleep"] = lambda _: None
+runner = StageRunner(root / "ckpt_v", root / "logs_v", **_runner_kw)
+k = min(3, max(2, len(phrases) // 3))
+E = np.asarray(
+    Embedder(root / "emb", client, models["embed"])(phrases.phrase.tolist()), float
 )
-k = 3
-E = np.asarray(Embedder(root / "emb", client, "fake-emb")(phrases.phrase.tolist()), float)
 labels, centroids, _ = frozen_or_new_assignments(phrases, E, k, 0, root / "cl")
 phrases = phrases.copy()
 phrases["cluster"] = labels
 phrases["centroid_sim"] = (E * centroids[labels]).sum(1)
 cluster_units = example_phrases_for_clusters(phrases, k, 0)
+from multilogue.clients import label_stage_fingerprint
 lab = runner.run(
     "lab", cluster_units, lambda cu: cu["key"],
     make_label_work(
-        client, system="l", prompt_template="Label:\\n<<PHRASES>>", model="fake-small",
+        client, system=TOPIC_LABEL_SYSTEM,
+        prompt_template=TOPIC_LABEL_PROMPT, model=models["label"],
     ),
-    "lab", quiet=True,
+    label_stage_fingerprint(
+        models["label"], system=TOPIC_LABEL_SYSTEM, prompt=TOPIC_LABEL_PROMPT,
+        extra="validate",
+    ),
+    quiet=True,
 )
 names = {
     cu["cluster"]: lab.get(cu["key"], {}).get("label", f"c{cu['cluster']}")
@@ -968,19 +1079,19 @@ lens_runs = runner.run(
     "lens", [1], lambda r: str(r),
     make_lens_work(
         client, system="L", prompt_template="Group:\\n<<CLUSTERS>>",
-        cluster_description=cl_desc, model="fake-small", k=k,
+        cluster_description=cl_desc, model=models["label"], k=k,
     ),
-    "lens", quiet=True,
+    f"lens|{models['label']}|{TOPIC_LABEL_PROMPT}", quiet=True,
 )
 phrases["lens"] = phrases["cluster"].map(resolve_lenses(k, lens_runs)[0])
 
-sheet = stratified_sample(phrases, by="group", n_per_stratum=2, random_state=0)
-display(sheet[["unit_id", "group", "phrase", "lens"]])
+sheet = stratified_sample(phrases, by="format", n_per_stratum=2, random_state=0)
+display(sheet[["unit_id", "format", "phrase", "lens"]])
 html = evidence_pack(
-    phrases, root / "evidence_pack.html", group_col="group",
-    title="Synthetic evidence pack", seed=0,
+    phrases, root / "evidence_pack.html", group_col="format",
+    title="CIMT evidence pack", seed=0,
 )
-write_manifest(root / "manifest.json", {"n_phrases": len(phrases), "synthetic": True})
+write_manifest(root / "manifest.json", {"n_phrases": len(phrases), "source": "cimt"})
 print("Evidence pack:", html)
 display(HTML(f'<a href="{html}" target="_blank">Open evidence pack</a>'))
 """
@@ -996,27 +1107,26 @@ substitute for $\\kappa$ or for substantive judgment.
         """
 # Outlook
 
-Notebook 07 assembles notebooks 00–06 into one offline smoke experiment.
-Notebook 08 develops the soft geometry under Multilogue's lens model.
+Notebook 07 assembles notebooks 00–06 into one offline smoke experiment on
+public CIMT units. Notebook 08 develops the soft geometry under Multilogue's
+lens model.
 """
     ),
 ]
 
-# ---------------------------------------------------------------------------
-# 07 End-to-end
-# ---------------------------------------------------------------------------
 NOTEBOOKS["07_end_to_end.ipynb"] = [
     md(
         title_block(
             "07_end_to_end.ipynb",
-            "End-to-end synthetic experiment",
+            "End-to-end experiment on public CIMT",
             """
 The pieces in notebooks 00–06 assemble into one callable,
-`run_validation_experiment`, also exposed as `multilogue-validate`. It uses only
-synthetic units and FakeClient — safe for CI and Colab without keys — and writes
-tables, a multiverse decomposition, and an evidence pack. Use this notebook as a
-smoke test after installing multilogue, then return to earlier notebooks when you
-want to change one aspect at a time.
+`run_validation_experiment`, also exposed as `multilogue-validate`. It runs on
+the public CIMT format pair with `phrases_from_units`. Labels/embeds use OpenAI
+from ``.env`` when ``OPENAI_API_KEY`` is set (else FakeClient offline). Writes
+tables, a multiverse decomposition, and an evidence pack. Use this notebook as
+a smoke test after installing multilogue, then return to earlier notebooks when
+you want to change one aspect at a time.
 """,
         )
     ),
@@ -1024,10 +1134,11 @@ want to change one aspect at a time.
         """
 # Introduction
 
-A full Address path is a sequence of explicit stages: extract, cluster, weight,
-multiverse, validate. The experiment helper wires them with defaults so that
-“does the install work?” is one cell, not ten. It is not a substitute for the
-methodological walkthroughs — it is the integration test you can also read.
+A full Address path is a sequence of explicit stages: extract (or unit-as-phrase),
+cluster, weight, multiverse, validate. The experiment helper wires them with
+defaults so that “does the install work?” is one cell, not ten. It is not a
+substitute for the methodological walkthroughs — it is the integration test you
+can also read.
 """
     ),
     code(
@@ -1039,11 +1150,12 @@ from multilogue.experiment import run_validation_experiment
 from multilogue import viz
 """
     ),
+    code(LOAD_CIMT_PAIR),
     code(
         """
 out = Path("outputs/notebook_e2e")
 summary = run_validation_experiment(
-    out, n_docs_per_group=3, units_per_doc=3, k=4, quiet=True,
+    out, units=units, phrases=phrases, k=4, quiet=True,
 )
 display(summary)
 tables = out / "tables"
@@ -1067,16 +1179,12 @@ print("Evidence pack:", out / "evidence_pack.html")
 
 - Soft PPCA lenses and document EMD: notebook **08**.
 - Formats-style Address (format as group, format-gap $\\ell$): notebook **09**.
-- Swap `load("synthetic")` for a public corpus in Access when you want real civic
-  text; replace FakeClient with an OpenAI or LiteLLM client for real extraction
-  (checkpoints still apply).
+- Live extract/label/embed: set ``OPENAI_API_KEY`` in ``.env`` (checkpoints still
+  apply). Force offline with ``MULTILOGUE_FORCE_FAKE=1``. Access stays public CIMT.
 """
     ),
 ]
 
-# ---------------------------------------------------------------------------
-# 08 Soft / EMD  (absorbs talk pedagogical core)
-# ---------------------------------------------------------------------------
 NOTEBOOKS["08_soft_distance.ipynb"] = [
     md(
         title_block(
@@ -1444,30 +1552,31 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
 stages = [
-    (0.50, 0.94, "1. Setup"),
-    (0.50, 0.84, "2. Access — public format pair"),
-    (0.50, 0.74, "3. Gold ℓ — mpos vs premise by format"),
-    (0.50, 0.64, "4. Address — soft-throughout pipeline"),
+    (0.50, 0.96, "1. Setup"),
+    (0.50, 0.88, "2. Access — public format pair"),
+    (0.50, 0.80, "3. Gold ℓ — mpos vs premise by format"),
+    (0.50, 0.72, "4. Assess — interactive subject grain"),
+    (0.50, 0.64, "5. Address — soft-throughout pipeline"),
 ]
 inners = [
-    (0.50, 0.54, "4a. Extract phrases"),
-    (0.50, 0.46, "4b. Embed"),
-    (0.50, 0.38, "4c. Soft cluster — MPPCA + topic σ² profile"),
-    (0.50, 0.30, "4d. Topic labels + framing lenses"),
-    (0.50, 0.22, "4e. Soft compare, document EMD, multiverse ℓ"),
+    (0.50, 0.54, "5a. Extract phrases"),
+    (0.50, 0.46, "5b. Embed"),
+    (0.50, 0.38, "5c. Soft cluster — MPPCA + topic σ² profile"),
+    (0.50, 0.30, "5d. Topic labels + framing lenses"),
+    (0.50, 0.22, "5e. Soft compare, EMD, multiverse ℓ (k held)"),
 ]
 tail = [
-    (0.50, 0.11, "5. Reading the run"),
-    (0.50, 0.01, "6. Outlook"),
+    (0.50, 0.11, "6. Reading the run"),
+    (0.50, 0.01, "7. Outlook"),
 ]
 
-fig, ax = plt.subplots(figsize=(9.5, 10.5))
+fig, ax = plt.subplots(figsize=(9.5, 11.0))
 ax.set_xlim(0, 1)
 ax.set_ylim(-0.04, 1.02)
 ax.axis("off")
 ax.set_title("Formats complexity — analysis flow", fontsize=14, pad=12)
 
-def _box(x, y, text, *, face, edge, width=0.72, height=0.065, fontsize=10, weight="normal"):
+def _box(x, y, text, *, face, edge, width=0.72, height=0.055, fontsize=10, weight="normal"):
     box = FancyBboxPatch(
         (x - width / 2, y - height / 2),
         width, height,
@@ -1479,7 +1588,7 @@ def _box(x, y, text, *, face, edge, width=0.72, height=0.065, fontsize=10, weigh
     ax.text(x, y, text, ha="center", va="center", fontsize=fontsize,
             fontweight=weight, transform=ax.transAxes, color="#1a202c")
 
-def _arrow(y0, y1, gap=0.032):
+def _arrow(y0, y1, gap=0.028):
     ax.annotate(
         "", xy=(0.50, y1 + gap), xytext=(0.50, y0 - gap),
         xycoords=ax.transAxes, textcoords=ax.transAxes,
@@ -1499,7 +1608,7 @@ ax.text(0.10, 0.575, "Address internals (one StageRunner run)",
 for x, y, t in stages:
     _box(x, y, t, face="#e8f1fa", edge="#2c5282", weight="bold")
 for x, y, t in inners:
-    _box(x, y, t, face="#edf2f7", edge="#718096", width=0.78, height=0.055, fontsize=9)
+    _box(x, y, t, face="#edf2f7", edge="#718096", width=0.78, height=0.05, fontsize=9)
 for x, y, t in tail:
     _box(x, y, t, face="#e8f1fa", edge="#2c5282", weight="bold")
 
@@ -1525,9 +1634,12 @@ Public-dialogue studies often ask whether *how* people are convened changes
 does not hard-code “format”; it supplies the Address machinery with a group
 column and a consumer metric $\\ell$. This notebook teaches that pattern: Access
 on a public format pair; a paper-aligned gold $\\ell$ (major position vs premise
-by format); then Address that prefers a cached CIMT LLM run at $k{=}10$ with
-German municipal cycling lenses (resuming via StageRunner when an API key is
-present), with a FakeClient formats demo as the offline fallback.
+by format); **Assess** that locks subject grain before spend; then Address that
+prefers a cached CIMT LLM run at locked $k{=}10$ with German municipal cycling
+lenses (resuming via StageRunner when an API key is present). Offline Address
+uses `phrases_from_units` on the same CIMT units (FakeClient only when no key /
+``MULTILOGUE_FORCE_FAKE``). Multiverse holds $k$ (or $\\pm 1$) by default — not a
+wide resolution grid.
 """,
         )
     ),
@@ -1550,42 +1662,46 @@ numbers and titles so you can jump from the diagram to the matching cell.
         """
 ## Analysis flow
 
-Six numbered stages. **Address** expands into the soft-throughout pipeline that
-`StageRunner` resumes from disk (extract → embed → MPPCA topics → labels/lenses →
-soft compare / EMD → multiverse $\\ell$).
+Seven numbered stages. **Assess** locks subject grain (Bishop–Tipping dual view)
+before **Address** spends on lenses / $\\ell$. Address expands into the
+soft-throughout pipeline that `StageRunner` resumes from disk (extract → embed →
+MPPCA topics → labels/lenses → soft compare / EMD → multiverse $\\ell$ with $k$
+**held** or $\\pm 1$ only).
 
 ```mermaid
 flowchart TD
   S["1. Setup"] --> A["2. Access — public format pair"]
   A --> G["3. Gold ℓ — mpos vs premise by format"]
-  G --> AD["4. Address — soft-throughout pipeline"]
+  G --> AG["4. Assess — interactive subject grain"]
+  AG --> AD["5. Address — soft-throughout pipeline"]
 
   subgraph ADDR["Address internals (one StageRunner run)"]
     direction TB
-    E1["4a. Extract phrases"] --> E2["4b. Embed"]
-    E2 --> E3["4c. Soft cluster — MPPCA + topic σ² profile"]
-    E3 --> E4["4d. Topic labels + framing lenses"]
-    E4 --> E5["4e. Soft compare, document EMD, multiverse ℓ"]
+    E1["5a. Extract phrases"] --> E2["5b. Embed"]
+    E2 --> E3["5c. Soft cluster — MPPCA + topic σ² profile"]
+    E3 --> E4["5d. Topic labels + framing lenses"]
+    E4 --> E5["5e. Soft compare, document EMD, multiverse ℓ (k held)"]
   end
 
   AD --> ADDR
-  ADDR --> R["5. Reading the run"]
-  R --> O["6. Outlook"]
+  ADDR --> R["6. Reading the run"]
+  R --> O["7. Outlook"]
 
   classDef stage fill:#e8f1fa,stroke:#2c5282,stroke-width:1.5px,color:#1a202c
   classDef inner fill:#f7fafc,stroke:#718096,stroke-width:1px,color:#1a202c
-  class S,A,G,AD,R,O stage
+  class S,A,G,AG,AD,R,O stage
   class E1,E2,E3,E4,E5 inner
 ```
 
 | # | Section | What it does |
 |---|---------|--------------|
 | 1 | Setup | Install / locate multilogue (first code cell) |
-| 2 | Access — public format pair | CIMT dialogue vs survey (or synthetic fallback) |
+| 2 | Access — public format pair | CIMT dialogue vs survey |
 | 3 | Gold $\\ell$ — mpos vs premise by format | Paper-aligned argument codes; no LLM |
-| 4 | Address — soft-throughout pipeline | Cache / live / FakeClient; StageRunner stages 4a–4e |
-| 5 | Reading the run | Catalogue, top concerns, findings markdown |
-| 6 | Outlook | What stays in a consumer formats package |
+| 4 | Assess — interactive subject grain | Bishop–Tipping dual view; lock $k$ before Address |
+| 5 | Address — soft-throughout pipeline | Cache / live / phrases_from_units; StageRunner stages 5a–5e |
+| 6 | Reading the run | Catalogue, top concerns, findings markdown |
+| 7 | Outlook | What stays in a consumer formats package |
 """
     ),
     code(FLOW_09),
@@ -1594,10 +1710,10 @@ flowchart TD
         """
 ## 2. Access — public format pair
 
-CIMT Bonn cycling *dialogue* vs *survey* stand in for workshop vs survey when
-the network is available. Assess without the analysis question: coverage by
-format and unit sizes. If CIMT cannot be fetched, we fall back to a short
-synthetic Access table so the notebook still runs.
+CIMT Bonn cycling *dialogue* vs *survey* stand in for workshop vs survey.
+Assess without the analysis question: coverage by format and unit sizes.
+Network is required once to populate the cache (`MULTILOGUE_DATAPATH` or
+`~/.cache/multilogue`).
 """
     ),
     code(
@@ -1605,7 +1721,8 @@ synthetic Access table so the notebook still runs.
 import os
 from IPython.display import display
 import pandas as pd
-from multilogue.experiment import load_cimt_format_pair, format_tagged_units
+from multilogue.experiment import load_cimt_format_pair
+from multilogue.extract import phrases_from_units
 from multilogue.assess_base import docs_per_group, unit_size_table
 """
     ),
@@ -1614,17 +1731,20 @@ from multilogue.assess_base import docs_per_group, unit_size_table
 os.environ.setdefault("MULTILOGUE_ACCESS_YES", "1")
 cimt_units, cimt_meta = load_cimt_format_pair(max_units_per=60)
 if cimt_units is None:
-    print("CIMT unavailable:", cimt_meta.get("error", "unknown"))
-    access_units = format_tagged_units(n_docs_per_group=3, units_per_doc=2)
-    access_label = "synthetic format stand-in (Access fallback)"
-else:
-    access_units = cimt_units
-    access_label = "CIMT Cycling-Dialogue-Bonn vs Survey-Bonn"
-    display(cimt_meta)
+    raise RuntimeError(
+        "CIMT Access failed: "
+        + str(cimt_meta.get("error", "unknown"))
+        + ". Need network once to populate MULTILOGUE_DATAPATH / ~/.cache/multilogue."
+    )
+access_units = cimt_units
+access_label = "CIMT Cycling-Dialogue-Bonn vs Survey-Bonn"
+display(cimt_meta)
 
 print(access_label, "—", len(access_units), "units")
 display(docs_per_group(access_units, "format"))
 display(unit_size_table(access_units).describe())
+offline_phrases = phrases_from_units(access_units, extra_fields=["group", "format"])
+print(f"{len(offline_phrases)} offline phrases (unit-as-phrase)")
 """
     ),
     md(
@@ -1645,8 +1765,7 @@ import multilogue.experiment as _ml_exp
 importlib.reload(_ml_exp)  # pick up edits without a full kernel restart
 gold_argument_format_compare = _ml_exp.gold_argument_format_compare
 
-gold_units = cimt_units if cimt_units is not None else access_units
-gold_cmp = gold_argument_format_compare(gold_units, formats=("dialogue", "survey"))
+gold_cmp = gold_argument_format_compare(access_units, formats=("dialogue", "survey"))
 if len(gold_cmp):
     display(gold_cmp)
     for r in gold_cmp.itertuples():
@@ -1655,36 +1774,79 @@ if len(gold_cmp):
             f"(Δ {r.difference:+.1f} pp)"
         )
 else:
-    print("No gold argument codes on these units (synthetic Access fallback).")
+    print("No gold argument codes on these units.")
 """
     ),
     md(
         """
 The sign of $\\Delta$ (survey − dialogue) should be **positive for mpos** and
 **negative for premise** if this slice reproduces the paper. Topic clustering
-below is a separate Address question.
+below is a separate question — first **Assess** the subject grain, then Address.
 """
     ),
     md(
         """
-## 4. Address — soft-throughout pipeline
+## 4. Assess — interactive subject grain
+
+Subject count $k$ defines how many topics the analysis admits. Putting a wide
+$k$ grid in the factorial multiverse swamps quote / kind / membership and
+answers the wrong stability question. CIP-0009 treats grain as **Assess EDA
+with a human in the loop** (Bishop–Tipping geometry + LLM catalogues); only
+after a **lock** does Address proceed.
+
+Notebook 03 teaches the dual-view shell on CIMT phrases. Here we record
+the lock policy for this formats run and keep the offline path
+scripted (no widgets required). **Lock grain before Address spend** — do not
+re-fit $k$ to maximise format-gap $\\ell$.
+"""
+    ),
+    code(
+        """
+import os
+from pathlib import Path
+from multilogue.subject_grain import lock_subject_grain
+
+# Formats Address default: hold locked primary k (CIP-0009). Optional pm1
+# via resolve_k_multiverse(10, "pm1") → [9, 10, 11]. Wide grids only via
+# explicit k_grid= on run_formats_complexity_demo (one-factor sweep).
+PRIMARY_K = 10
+grain_lock = lock_subject_grain(
+    primary_k=PRIMARY_K,
+    k_multiverse="hold",
+    extra={
+        "note": "Assess lock before Address; dual-view merge/split lives in notebook 03",
+        "lock_before_spend": True,
+    },
+)
+lock_dir = Path("outputs/notebook_formats_complexity")
+lock_dir.mkdir(parents=True, exist_ok=True)
+from multilogue.config import dump_json
+dump_json(grain_lock, lock_dir / "subject_grain_lock.json")
+print("subject-grain lock →", lock_dir / "subject_grain_lock.json")
+print("primary_k =", grain_lock["primary_k"], "k_multiverse =", grain_lock["k_multiverse"])
+display(grain_lock)
+"""
+    ),
+    md(
+        """
+## 5. Address — soft-throughout pipeline
 
 StageRunner checkpoints under `outputs/formats_cimt_llm/` mean a prior CIMT LLM
-run can be reused without paying again. Internally this is stages **4a–4e** on
+run can be reused without paying again. Internally this is stages **5a–5e** on
 the flowchart (extract → embed → MPPCA + topic $\\sigma^2$ profile → labels/lenses
-→ soft compare / EMD / multiverse $\\ell$). The next cell therefore:
+→ soft compare / EMD / multiverse $\\ell$ with **$k$ held**). The next cell
+therefore:
 
 1. loads `.env` if present;
-2. if `OPENAI_API_KEY` is set and CIMT units exist — *resume or recache* the live
-   demo at $k{=}10$ with **German labels** and a fixed municipal cycling lens
-   vocabulary (paths, parking, surface, junctions/tram, access/Rhein, mixed
-   traffic). Completed extract/embed fingerprints are reused; new $k$ and prompts
-   re-run cluster labels and lenses;
+2. if `OPENAI_API_KEY` is set — *resume or recache* the live
+   demo at the **locked** $k{=}10$ with **German labels** and a fixed municipal
+   cycling lens vocabulary (paths, parking, surface, junctions/tram,
+   access/Rhein, mixed traffic). Completed extract/embed fingerprints are
+   reused; new prompts re-run cluster labels and lenses — do not sweep a wide
+   $k$ grid here;
 3. else if a complete cached run is already on disk — use those tables;
-4. else run the offline FakeClient formats demo so Colab / CI still work.
-
-German CIMT text does not match the English FakeClient phrase bank, so the
-synthetic fallback keeps the same `format` group mechanics without an API.
+4. else run offline Address on the same CIMT units via `phrases_from_units`
+   (OpenAI from ``.env`` when available; FakeClient offline — no synthetic civic text).
 """
     ),
     code(
@@ -1725,15 +1887,15 @@ key = os.environ.get("OPENAI_API_KEY", "").strip()
 summary = None
 address_source = None
 
-if key and cimt_units is not None:
+if key:
     from multilogue.openai_client import OpenAIClient
     units_live = [
-        u for u in cimt_units
+        u for u in access_units
         if (u.get("meta") or {}).get("code") != "non-arg"
     ]
     print(
         f"Live / resume CIMT Address → {LLM_OUT} "
-        f"(k=10, German cycling lenses; {len(units_live)} units)"
+        f"(locked k={PRIMARY_K}, German cycling lenses; {len(units_live)} units)"
     )
     summary = run_formats_complexity_demo(
         LLM_OUT,
@@ -1743,9 +1905,11 @@ if key and cimt_units is not None:
         extract_model="gpt-4.1-mini",
         embed_model="text-embedding-3-small",
         label_model="gpt-4.1-mini",
-        k=10, lens_runs=3, quiet=True, max_workers=4,
+        k=PRIMARY_K, lens_runs=3, quiet=True, max_workers=4,
         label_prompt_template=CYCLING_LABEL_PROMPT,
         lens_prompt_template=CYCLING_LENS_PROMPT,
+        k_multiverse="hold",
+        subject_grain_lock=grain_lock,
     )
     tables = CACHE_TABLES
     address_source = "cimt_llm"
@@ -1765,18 +1929,27 @@ elif cache_ready:
 else:
     out = Path("outputs/notebook_formats_complexity")
     print(
-        "No CIMT cache and no API key — FakeClient formats demo →", out
+        "No CIMT cache and no API key — offline phrases_from_units →", out
     )
     summary = run_formats_complexity_demo(
-        out, n_docs_per_group=4, units_per_doc=3, k=5, lens_runs=3, quiet=True,
+        out,
+        units=access_units,
+        phrases=offline_phrases,
+        k=PRIMARY_K,
+        lens_runs=3,
+        quiet=True,
+        k_multiverse="hold",
+        subject_grain_lock=grain_lock,
     )
     tables = out / "tables"
-    address_source = "fakeclient"
+    address_source = "cimt_offline"
 
 display(summary)
 print("Address source:", address_source)
+print("Subject grain:", (summary or {}).get("subject_grain") if isinstance(summary, dict) else None)
+print("Multiverse dims (no wide k by default):", (summary or {}).get("multiverse_dims") if isinstance(summary, dict) else None)
 print("Tables:", tables.resolve())
-print("Checkpoints:", LLM_OUT / "checkpoints" if address_source != "fakeclient" else tables.parent / "checkpoints")
+print("Checkpoints:", LLM_OUT / "checkpoints" if address_source != "cimt_offline" else tables.parent / "checkpoints")
 """
     ),
     code(
@@ -1799,18 +1972,24 @@ shares_path = tables / "variance_shares_format_gap.csv"
 if shares_path.is_file():
     shares = pd.read_csv(shares_path)
     viz.variance_share_bars(shares, path=FIG / "09_format_gap_variance.png")
+    # CIP-0009: factorial dims should not be dominated by a silent k grid
+    if "dimension" in shares.columns and (shares["dimension"] == "k").any():
+        print("Note: k appears in variance shares — pass k_grid= only for deliberate sweeps.")
 if isinstance(summary, dict):
     print("Soft:", summary.get("soft"))
     print("Distance:", summary.get("distance"))
+    print("Locked subject grain:", summary.get("subject_grain"))
 """
     ),
     md(
         """
-## 5. Reading the run
+## 6. Reading the run
 
 Findings summarise gold argument structure (when present), clusters, top
 concerns by format, and which analytic decisions move the topic-gap $\\ell$.
-This cell only reads tables — no LLM calls.
+Multiverse variance shares here are over quote / kind / membership — **not** a
+wide $k$ grid (stage **5e** holds locked grain). This cell only reads tables —
+no LLM calls.
 """
     ),
     code(
@@ -1844,7 +2023,7 @@ if shares is not None:
 title = (
     "CIMT dialogue vs survey — findings"
     if address_source in {"cimt_llm", "cimt_cache"}
-    else "Dialogue vs survey — findings (FakeClient)"
+    else "CIMT dialogue vs survey — findings (offline phrases)"
 )
 md_text = findings_markdown(
     ph, compare=cmp, multiverse=multi, variance_shares=shares,
@@ -1860,12 +2039,14 @@ display(Markdown(md_text))
     ),
     md(
         """
-## 6. Outlook
+## 7. Outlook
 
 Multilogue owns the shared stages above. A formats-style consumer package still
 keeps: PDF/docx Access, study prompts and experience coding, researcher-edited
-lens YAML, and the precise definition of headline $\\ell$. See the formats
-cookbook and the soft / EMD concepts page in the documentation.
+lens YAML, and the precise definition of headline $\\ell$. Subject grain is
+locked in Assess (notebook 03 dual-view shell; this notebook's lock artefact)
+before Address spend. See the formats cookbook and the soft / EMD concepts page
+in the documentation.
 """
     ),
 ]
