@@ -6,10 +6,10 @@ Hard *k*-means plus a single lens map assigns each cluster to one framing. Multi
 
 | Floor | Role | Rule |
 |-------|------|------|
-| Topic \(\sigma^2_{\mathrm{topic}}\) | MPPCA phrase→topic fit | Fixed for the analysis config (default in `mppca.DEFAULT_TOPIC_SIGMA2`) |
+| Topic \(\sigma^2_{\mathrm{topic}}\) | MPPCA phrase→topic fit | **Profiled once** on a short log grid (`profile_topic_sigma2`): softest σ² that still keeps separated MAP topics / means; then fixed for the run. Fallback constant: `DEFAULT_TOPIC_SIGMA2` |
 | Lens \(\sigma^2_{\mathrm{lens}}\) | Soft lens mixture / σ²\* | Shared when scoring runs; chosen once by the EMD stability rule below, then fixed |
 
-The floors are **independent**. Do not re-fit a different σ² per lens-mapping replicate or per document.
+The floors are **independent**. Do not re-fit a different topic σ² per lens-mapping replicate or per document. A fixed `0.1` without profiling collapsed OpenAI embedding fits (all `q=0`, one MAP topic).
 
 ## Soft mixture weights
 

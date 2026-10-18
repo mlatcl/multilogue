@@ -18,6 +18,7 @@ import yaml
 from .mppca import (
     DEFAULT_TOPIC_SIGMA2,
     mppca_fit,
+    profile_topic_sigma2,
     responsibilities_to_labels,
 )
 from .text import get_list, parse_json, sha
@@ -92,10 +93,30 @@ def mppca_topics(
     k: int,
     seed: int,
     *,
-    sigma2: float = DEFAULT_TOPIC_SIGMA2,
+    sigma2: Optional[float] = None,
+    profile: bool = True,
 ) -> dict[str, Any]:
-    """Fit soft MPPCA topics; return responsibilities, means, and MAP labels."""
-    fit = mppca_fit(X, k, sigma2=sigma2, seed=seed, n_init=10)
+    """Fit soft MPPCA topics; return responsibilities, means, and MAP labels.
+
+    By default (``profile=True``, ``sigma2=None``) runs
+    :func:`multilogue.mppca.profile_topic_sigma2` once and uses the softest
+    non-collapsing floor — the CIP-0017 topic σ² profile grid. Pass an
+    explicit ``sigma2`` to skip profiling.
+    """
+    if sigma2 is not None:
+        fit = mppca_fit(X, k, sigma2=float(sigma2), seed=seed, n_init=10)
+        profile_meta: dict[str, Any] = {"selection": "fixed", "curve": []}
+    elif profile:
+        prof = profile_topic_sigma2(X, k, seed=seed, n_init=10)
+        fit = prof["fit"]
+        profile_meta = {
+            "selection": prof["selection"],
+            "curve": prof["curve"],
+            "min_map": prof["min_map"],
+        }
+    else:
+        fit = mppca_fit(X, k, sigma2=DEFAULT_TOPIC_SIGMA2, seed=seed, n_init=10)
+        profile_meta = {"selection": "default_constant", "curve": []}
     R = np.asarray(fit["responsibilities"], dtype=float)
     means = np.asarray(fit["means"], dtype=float)
     labels = responsibilities_to_labels(R)
@@ -105,6 +126,8 @@ def mppca_topics(
         "labels": labels,
         "sigma2": float(fit["sigma2"]),
         "pi": np.asarray(fit["pi"], dtype=float),
+        "collapsed": bool(fit.get("collapsed", False)),
+        "sigma2_selection": profile_meta,
     }
 
 
@@ -157,15 +180,15 @@ def frozen_or_new_assignments(
     phrase_id_col: str = "phrase_id",
     replay: bool = False,
     freeze: bool = False,
-    sigma2: float = DEFAULT_TOPIC_SIGMA2,
+    sigma2: Optional[float] = None,
     return_soft: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, bool] | tuple[np.ndarray, np.ndarray, bool, np.ndarray]:
     """Fit soft MPPCA topics (default) or explicitly reload a soft checkpoint.
 
-    **Default (``freeze=False``):** always run ``mppca_fit`` and overwrite
-    soft checkpoints. Hard ``cluster_assignments_k*.csv`` files are never
-    used as topic geometry — that silent hard freeze is what kept formats
-    on stale k-means after CIP-0017.
+    **Default (``freeze=False``):** always profile topic σ² (unless
+    ``sigma2`` is passed) via :func:`mppca_topics`, then overwrite soft
+    checkpoints. Hard ``cluster_assignments_k*.csv`` files are never used
+    as topic geometry.
 
     **``freeze=True`` / ``replay=True``:** load soft
     ``topic_responsibilities_k{k}.npy`` + means when phrase ids match.
@@ -185,6 +208,7 @@ def frozen_or_new_assignments(
     R_path = checkpoint_dir / f"topic_responsibilities_k{k}.npy"
     means_path = checkpoint_dir / f"topic_means_k{k}.npy"
     ids_path = checkpoint_dir / f"topic_phrase_ids_k{k}.json"
+    sigma_path = checkpoint_dir / f"topic_sigma2_k{k}.json"
     phrase_ids = phrases[phrase_id_col].tolist()
 
     def _pack(labels, means, frozen, R):
@@ -214,6 +238,18 @@ def frozen_or_new_assignments(
     np.save(R_path, R)
     np.save(means_path, means)
     ids_path.write_text(json.dumps(phrase_ids), encoding="utf-8")
+    sigma_path.write_text(
+        json.dumps(
+            {
+                "sigma2": fit["sigma2"],
+                "selection": fit.get("sigma2_selection", {}),
+                "collapsed": fit.get("collapsed", False),
+            },
+            indent=2,
+            default=float,
+        ),
+        encoding="utf-8",
+    )
     pd.DataFrame({"phrase_id": phrases[phrase_id_col], "cluster": labels}).to_csv(
         path, index=False
     )
