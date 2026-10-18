@@ -32,18 +32,43 @@ def _merge(base: dict, extra: dict) -> dict:
     return base
 
 
-def load_dotenv(path: str | Path | None = None, *, override: bool = False) -> Path | None:
-    """Load KEY=VALUE pairs from a ``.env`` file into ``os.environ``."""
+def _dotenv_candidates(path: str | Path | None = None) -> list[Path]:
+    """Ordered ``.env`` paths: explicit, ``MULTILOGUE_ROOT``, cwd→parents, package root."""
     candidates: list[Path] = []
     if path is not None:
         candidates.append(Path(path))
-    else:
-        if os.environ.get("MULTILOGUE_ROOT"):
-            candidates.append(Path(os.environ["MULTILOGUE_ROOT"]) / ".env")
-        candidates.append(Path.cwd() / ".env")
+        return candidates
+    if os.environ.get("MULTILOGUE_ROOT"):
+        candidates.append(Path(os.environ["MULTILOGUE_ROOT"]) / ".env")
+    # Notebooks often run with cwd=notebooks/; walk up to the repo .env
+    try:
+        cur = Path.cwd().resolve()
+    except OSError:
+        cur = Path(".")
+    for parent in [cur, *cur.parents]:
+        candidates.append(parent / ".env")
+        # Stop at filesystem root after adding; walk already includes it
+        if parent.parent == parent:
+            break
+    # Editable install: multilogue/config.py → repo root
+    pkg_root = Path(__file__).resolve().parents[1]
+    candidates.append(pkg_root / ".env")
+    return candidates
+
+
+def load_dotenv(path: str | Path | None = None, *, override: bool = False) -> Path | None:
+    """Load KEY=VALUE pairs from a ``.env`` file into ``os.environ``.
+
+    When ``path`` is omitted, searches ``MULTILOGUE_ROOT``, the current
+    working directory and its parents (so ``notebooks/`` still finds the
+    repo-root ``.env``), then the package checkout root.
+    """
     seen: set[Path] = set()
-    for raw in candidates:
-        p = raw.resolve()
+    for raw in _dotenv_candidates(path):
+        try:
+            p = raw.resolve()
+        except OSError:
+            continue
         if p in seen or not p.is_file():
             continue
         seen.add(p)

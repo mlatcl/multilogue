@@ -6,6 +6,7 @@ No LLM calls and no format-gap / study metrics here.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Optional, Sequence
 
 import numpy as np
@@ -278,6 +279,10 @@ def propose_split(
             f"(got {X_sub.shape[0]} points)"
         )
     sigma2 = float(fit["sigma2"])
+    parent_cf = None
+    cfs = fit.get("component_fits") or []
+    if 0 <= i < len(cfs):
+        parent_cf = deepcopy(cfs[i])
     local = mppca_fit(
         X_sub,
         n_children,
@@ -315,6 +320,10 @@ def propose_split(
         "dirty": child_ids,
         "history_entry": history_entry,
         "local_fit": local,
+        "parent_id": i,
+        "parent_mass": mass.copy(),
+        "parent_component_fit": parent_cf,
+        "child_responsibilities": child_cols,
     }
 
 
@@ -327,11 +336,17 @@ def topic_catalogue(
     phrase_col: str = "phrase",
     n_examples: int = 4,
     seed: int = 0,
+    parent_labels: Optional[Sequence[str | None] | dict[int, str]] = None,
+    proposed: Optional[Sequence[int]] = None,
 ) -> pd.DataFrame:
     """Semantic catalogue table for soft topics (exemplars + dirty flags).
 
     Deterministic given ``seed`` / exemplars. Does not call an LLM — optional
     ``labels`` are pass-through reading aids (may be stale placeholders).
+
+    ``parent_labels`` records the pre-split LLM name for topics born from a
+    split (so the catalogue shows original label *and* the proposed children).
+    ``proposed`` marks topics that are still under a pending split proposal.
     """
     R = np.asarray(responsibilities, dtype=float)
     if isinstance(phrases, pd.DataFrame):
@@ -344,7 +359,15 @@ def topic_catalogue(
         phrase_list, R, n_top=max(n_examples, 1), n_sample=0, seed=seed
     )
     dirty_set = set(int(d) for d in (dirty or ()))
+    proposed_set = set(int(d) for d in (proposed or ()))
     label_list = list(labels) if labels is not None else None
+    parent_map: dict[int, str] = {}
+    if isinstance(parent_labels, dict):
+        parent_map = {int(k): str(v) for k, v in parent_labels.items() if v}
+    elif parent_labels is not None:
+        for j, pl in enumerate(parent_labels):
+            if pl is not None and str(pl) != "":
+                parent_map[j] = str(pl)
     rows = []
     for u in units:
         c = int(u["cluster"])
@@ -359,6 +382,8 @@ def topic_catalogue(
             {
                 "topic": c,
                 "label": name,
+                "parent_label": parent_map.get(c, ""),
+                "proposed": c in proposed_set,
                 "dirty": is_dirty,
                 "n_examples": len(examples),
                 "examples": "; ".join(str(e) for e in examples[:n_examples]),

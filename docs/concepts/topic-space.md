@@ -1,6 +1,6 @@
 # Shared topic space
 
-After extraction, phrases live in one embedding space. Legacy consumers partition with hard *k*-means. Soft-throughout consumers (CIP-0017) fit a **mixture of PPCA** ([`multilogue.mppca.mppca_fit`](../api/mppca.md)): *k*-means only initialises component means; soft responsibilities are the primary topic state. Harden to MAP labels / exemplars only at LLM or report boundaries (`responsibilities_to_labels`, `example_phrases_for_soft_topics`).
+After extraction, phrases live in one embedding space. Legacy consumers partition with hard *k*-means. Soft-throughout consumers (CIP-0017) fit a **mixture of PPCA** ([`multilogue.mppca.mppca_fit`](../api/mppca.md)): *k*-means only initialises component means; soft responsibilities are the primary topic state. Harden to MAP labels / exemplars only at LLM or report boundaries (`responsibilities_to_labels`, `example_phrases_for_soft_topics`). Exemplars for a topic are phrases with responsibility at least `1/k` by default (override with `min_responsibility`), capped at `n_top` — not a fixed pad of 12.
 
 ## Frozen assignments
 

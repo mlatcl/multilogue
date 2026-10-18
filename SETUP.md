@@ -28,14 +28,14 @@ required for the package itself.
 | [08_soft_distance](notebooks/08_soft_distance.ipynb) | Soft PPCA, σ²-by-EMD, document EMD (`pot`) |
 | [09_formats_complexity](notebooks/09_formats_complexity.ipynb) | Formats-style stack; CIMT Access; optional live LLM via `.env` |
 
-Default path: **synthetic units + FakeClient** (no API key). Optional cells load public
-open data (e.g. Polis) into a local cache — never commit that cache.
+Corpus: public CIMT (or other Access sources). Labels / embeds / extract use
+**OpenAI from the repo-root `.env`** when `OPENAI_API_KEY` is set (also found
+when the notebook cwd is `notebooks/`). Offline FakeClient only when you set
+`MULTILOGUE_FORCE_FAKE=1` — missing keys no longer fall through silently.
 
-For a live LLM pass on notebook 09: from the **repo root** (not `notebooks/`),
-`cp .env.example .env` and set `OPENAI_API_KEY`. Install
-`pip install -e '.[openai,distance]'`. Category choices (extract kinds, lens hints,
-unit cap) are editable cells in that notebook. Checkpoints stay under gitignored
-`outputs/` (do not commit JSONL with unit text).
+From the **repo root** (not `notebooks/`): `cp .env.example .env` and set
+`OPENAI_API_KEY`. Install `pip install -e '.[openai,distance]'`. Checkpoints stay
+under gitignored `outputs/` (do not commit JSONL with unit text).
 
 ## Regenerating notebooks
 

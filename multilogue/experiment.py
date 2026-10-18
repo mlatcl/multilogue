@@ -1,7 +1,9 @@
-"""End-to-end validation experiments (synthetic / FakeClient by default).
+"""End-to-end validation experiments on public corpora.
 
-Runs extract → embed → cluster → lenses → document-weighted compare → multiverse.
-Writes artefacts under a caller-chosen directory (use gitignored ``outputs/``).
+Runs extract (or phrases_from_units) → embed → cluster → lenses → compare →
+multiverse. Writes artefacts under a caller-chosen directory (use gitignored
+``outputs/``). Uses OpenAI from ``.env`` when available; FakeClient only when
+forced offline (``MULTILOGUE_FORCE_FAKE=1``) or no API key.
 """
 from __future__ import annotations
 
@@ -20,8 +22,14 @@ from .cluster import (
     make_lens_work,
     resolve_lenses,
 )
+from .clients import (
+    TOPIC_LABEL_PROMPT,
+    TOPIC_LABEL_SYSTEM,
+    label_stage_fingerprint,
+    resolve_study_client,
+)
 from .config import dump_json
-from .dummy import BANK, FakeClient, make_units, write_units_json
+from .dummy import FakeClient, make_units, write_units_json
 from .extract import make_extract_work, phrase_table, yield_report
 from .llm import StageRunner
 from .multiverse import enumerate_configurations, run_multiverse, variance_decomposition
@@ -133,64 +141,76 @@ def gold_argument_format_compare(
 def run_validation_experiment(
     out_dir: str | Path,
     *,
-    n_docs_per_group: int = 4,
-    units_per_doc: int = 3,
+    units: list[dict[str, Any]] | None = None,
+    phrases: Any | None = None,
     k: int = 4,
     seed: int = 0,
     quiet: bool = True,
 ) -> dict[str, Any]:
-    """Run the synthetic pipeline. Returns a summary dict; writes files under ``out_dir``."""
+    """End-to-end smoke pipeline on real units (or a prebuilt phrase table).
+
+    Pass ``units`` from Access (e.g. :func:`load_cimt_format_pair`) and/or
+    ``phrases`` from :func:`multilogue.extract.phrases_from_units`. Uses
+    OpenAI from ``.env`` when available; FakeClient only offline / forced.
+    """
+    from .extract import phrases_from_units
+
     out = Path(out_dir)
     ckpt, logs, tables = out / "checkpoints", out / "logs", out / "tables"
     for d in (ckpt, logs, tables):
         d.mkdir(parents=True, exist_ok=True)
 
-    units = make_units(n_docs_per_group=n_docs_per_group, units_per_doc=units_per_doc)
-    write_units_json(units, out / "synthetic_units.json")
+    if units is None and phrases is None:
+        raise ValueError(
+            "run_validation_experiment requires units= and/or phrases=; "
+            "synthetic civic defaults were removed from the pedagogy path"
+        )
+    if units is None:
+        units = []
+        for _, row in phrases.iterrows():  # type: ignore[union-attr]
+            units.append(
+                {
+                    "unit_id": row["unit_id"],
+                    "doc_id": row["doc_id"],
+                    "text": row.get("phrase", ""),
+                    "group": row.get("group") or row.get("format"),
+                    "format": row.get("format") or row.get("group"),
+                    "meta": {},
+                }
+            )
+    write_units_json(units, out / "units.json")
     units_by_id = {u["unit_id"]: u for u in units}
 
-    client = FakeClient()
-    runner = StageRunner(ckpt, logs, max_workers=2, sleep=lambda _: None)
+    client, models, client_kind = resolve_study_client(
+        log_path=logs / "llm.jsonl",
+    )
+    if client_kind == "fake":
+        runner = StageRunner(ckpt, logs, max_workers=2, sleep=lambda _: None)
+    else:
+        runner = StageRunner(ckpt, logs, max_workers=2)
 
     extraction: dict[str, dict] = {}
-    for kind in ("concern", "benefit"):
-        work = make_extract_work(
-            client,
-            kind=kind,
-            system="extract",
-            user_for_unit=lambda u, k=kind: u["text"],
-            model="fake-small",
-            sentinel=f"NO_{kind.upper()}",
-            quote_threshold=0.8,
-        )
-        extraction[kind] = runner.run(
-            f"extract_{kind}",
-            units,
-            lambda u: u["unit_id"],
-            work,
-            f"extract|{kind}|fake-small|v1",
-            quiet=quiet,
-        )
-
-    phrases = phrase_table(
-        extraction, units_by_id, kinds=["concern", "benefit"], extra_unit_fields=["group"]
-    )
-    # Prefer verified points when any exist
-    verified = phrases[phrases.verified] if "verified" in phrases.columns else phrases
-    if len(verified) < 4:
-        verified = phrases
-    verified = verified.reset_index(drop=True)
+    if phrases is None:
+        phrases = phrases_from_units(units, extra_fields=["group", "format"])
+    verified = phrases.copy().reset_index(drop=True)
+    if "group" not in verified.columns and "format" in verified.columns:
+        verified["group"] = verified["format"]
     verified.to_csv(tables / "phrases.csv", index=False)
 
     by_group = {
-        g: [u["unit_id"] for u in units if u["group"] == g]
-        for g in sorted({u["group"] for u in units})
+        g: [u["unit_id"] for u in units if (u.get("group") or u.get("format")) == g]
+        for g in sorted({u.get("group") or u.get("format") for u in units})
     }
-    yield_report(extraction, by_group, kinds=["concern", "benefit"]).to_csv(
-        tables / "yield.csv", index=False
-    )
+    yd_rows = []
+    for kind in verified["kind"].dropna().unique():
+        for g, uids in by_group.items():
+            sub = verified[(verified["kind"] == kind) & (verified["group"] == g)]
+            yd_rows.append(
+                {"kind": kind, "group": g, "units": len(uids), "kept": int(len(sub))}
+            )
+    pd.DataFrame(yd_rows).to_csv(tables / "yield.csv", index=False)
 
-    emb = Embedder(ckpt, client, "fake-embed")
+    emb = Embedder(ckpt, client, models["embed"])
     E = emb(verified.phrase.tolist())
     k_eff = min(k, max(2, len(verified) // 3))
     labels, centroids, frozen = frozen_or_new_assignments(
@@ -207,11 +227,16 @@ def run_validation_experiment(
         lambda cu: cu["key"],
         make_label_work(
             client,
-            system="label",
-            prompt_template="Label these:\n<<PHRASES>>",
-            model="fake-small",
+            system=TOPIC_LABEL_SYSTEM,
+            prompt_template=TOPIC_LABEL_PROMPT,
+            model=models["label"],
         ),
-        f"labels|k{k_eff}|fake-small",
+        label_stage_fingerprint(
+            models["label"],
+            system=TOPIC_LABEL_SYSTEM,
+            prompt=TOPIC_LABEL_PROMPT,
+            extra=f"k{k_eff}",
+        ),
         quiet=quiet,
     )
     names = {
@@ -233,7 +258,7 @@ def run_validation_experiment(
             system="lens",
             prompt_template="Group:\n<<CLUSTERS>>",
             cluster_description=cl_desc,
-            model="fake-small",
+            model=models["label"],
             k=k_eff,
         ),
         f"lenses|k{k_eff}|{cl_desc[:80]}",
@@ -255,9 +280,12 @@ def run_validation_experiment(
     )
     compare.to_csv(tables / "group_compare_lenses.csv", index=False)
 
+    groups_sorted = sorted(verified.group.unique())
+    g0 = groups_sorted[0] if groups_sorted else None
+
     def evaluate(cfg: dict) -> dict:
-        # Simple synthetic ℓ: share of phrases in Lens A for group_a under cfg threshold
-        sub = verified[verified.group == "group_a"]
+        # Smoke ℓ: share of phrases in Lens A for the first group under cfg threshold
+        sub = verified[verified.group == g0] if g0 is not None else verified.iloc[0:0]
         share = float((sub.lens == "Lens A").mean()) if len(sub) else 0.0
         return {"ell_lens_a": share + 0.01 * cfg["k"] + cfg["threshold"]}
 
@@ -271,7 +299,7 @@ def run_validation_experiment(
         verified,
         out / "evidence_pack.html",
         group_col="group",
-        title="Synthetic evidence pack",
+        title="Evidence pack",
         seed=seed,
     )
     summary = {
@@ -280,8 +308,7 @@ def run_validation_experiment(
         "k": k_eff,
         "frozen_clusters": frozen,
         "n_fake_calls": len(client.calls),
-        "bank_kinds": list(BANK),
-        "synthetic": True,
+        "synthetic": False,
     }
     write_manifest(out / "run_manifest.json", summary)
     dump_json(summary, tables / "summary.json")
@@ -318,8 +345,8 @@ def load_cimt_format_pair(
     """Load CIMT dialogue vs survey as format-tagged units (Access demo).
 
     Returns ``(units, meta)``. On download/parse failure, ``units`` is ``None``
-    and ``meta`` carries ``error``. German text needs a real LLM for extraction;
-    use :func:`format_tagged_units` for the FakeClient Address path.
+    and ``meta`` carries ``error``.     German text needs a real LLM for extraction, or pass
+    :func:`multilogue.extract.phrases_from_units` for offline pedagogy.
     """
     from .access import load
 
@@ -368,8 +395,8 @@ def run_formats_complexity_demo(
     include_soft: bool = True,
     include_distance: bool = True,
     kinds: tuple[str, ...] = ("concern", "benefit", "condition"),
-    extract_model: str = "fake-small",
-    embed_model: str = "fake-embed",
+    extract_model: str | None = None,
+    embed_model: str | None = None,
     label_model: str | None = None,
     max_workers: int = 2,
     extract_system: str = "extract",
@@ -379,20 +406,22 @@ def run_formats_complexity_demo(
     k_grid: list[int] | None = None,
     k_multiverse: str | list[int] | None = "hold",
     subject_grain_lock: dict[str, Any] | None = None,
+    phrases: Any | None = None,
 ) -> dict[str, Any]:
     """Formats-style pipeline: format labels, hard+soft compare, EMD, format-gap ℓ.
 
-    Default: English synthetic units + FakeClient (CI/Colab offline). Pass real
-    ``units`` (e.g. CIMT format pair) and an ``OpenAIClient`` to run live; results
-    resume from ``out_dir/checkpoints`` via StageRunner fingerprints — re-runs
-    skip completed items until the fingerprint (prompt/model/version) changes.
+    Pass real ``units`` (e.g. CIMT format pair). When ``client`` is omitted,
+    :func:`~multilogue.clients.resolve_study_client` picks OpenAI from ``.env``
+    or FakeClient offline. Live extraction resumes from ``out_dir/checkpoints``.
+    For offline pedagogy on public corpora, pass a prebuilt ``phrases`` table
+    (e.g. :func:`multilogue.extract.phrases_from_units`) to skip LLM extract.
 
     Optional ``label_prompt_template`` / ``lens_prompt_template`` override the
     default English JSON prompts (use :data:`CYCLING_LABEL_PROMPT` /
     :data:`CYCLING_LENS_PROMPT` for German municipal framings). Lens templates
     may include ``<<K_MINUS_1>>``, replaced with ``k_eff - 1``.
 
-    Subject grain (CIP-0009): the factorial multiverse does **not** vary \(k\)
+    Subject grain (CIP-0009): the factorial multiverse does **not** vary ``k``
     by default. Pass an explicit ``k_grid`` for an optional one-factor
     resolution sweep only. ``subject_grain_lock`` (or an auto-built lock from
     ``k`` / ``k_multiverse``) is written into the run manifest for Address.
@@ -405,19 +434,29 @@ def run_formats_complexity_demo(
     for d in (ckpt, logs, tables):
         d.mkdir(parents=True, exist_ok=True)
 
-    if units is None:
-        formats = FORMAT_PAIR
-        units = format_tagged_units(
-            n_docs_per_group=n_docs_per_group,
-            units_per_doc=units_per_doc,
-            formats=formats,
+    if units is None and phrases is None:
+        raise ValueError(
+            "run_formats_complexity_demo requires units= (e.g. load_cimt_format_pair) "
+            "and/or phrases=; synthetic defaults were removed from the pedagogy path"
         )
-        synthetic = True
-    else:
-        formats = tuple(sorted({str(u.get("format") or u.get("group")) for u in units}))
-        if len(formats) < 2:
-            formats = FORMAT_PAIR
-        synthetic = False
+    if units is None:
+        # phrases-only: recover minimal units from phrase rows
+        units = []
+        for _, row in phrases.iterrows():  # type: ignore[union-attr]
+            units.append(
+                {
+                    "unit_id": row["unit_id"],
+                    "doc_id": row["doc_id"],
+                    "text": row.get("phrase", ""),
+                    "format": row.get("format") or row.get("group"),
+                    "group": row.get("group") or row.get("format"),
+                    "meta": {},
+                }
+            )
+    formats = tuple(sorted({str(u.get("format") or u.get("group")) for u in units}))
+    if len(formats) < 2:
+        formats = FORMAT_PAIR
+    synthetic = False
     write_units_json(units, out / "format_units.json")
     units_by_id = {u["unit_id"]: u for u in units}
 
@@ -425,52 +464,78 @@ def run_formats_complexity_demo(
     if len(gold_cmp):
         gold_cmp.to_csv(tables / "gold_argument_format_compare.csv", index=False)
 
-    client = client or FakeClient()
+    if client is None:
+        client, default_models, _kind = resolve_study_client(
+            log_path=logs / "llm.jsonl",
+        )
+    else:
+        default_models = (
+            {"embed": "fake-emb", "label": "fake-small", "extract": "fake-small"}
+            if isinstance(client, FakeClient)
+            else {
+                "embed": "text-embedding-3-small",
+                "label": "gpt-4.1-mini",
+                "extract": "gpt-4.1-mini",
+            }
+        )
+    extract_model = extract_model or default_models["extract"]
+    embed_model = embed_model or default_models["embed"]
     label_model = label_model or extract_model
+    if label_prompt_template is None:
+        label_prompt_template = TOPIC_LABEL_PROMPT
     if isinstance(client, FakeClient):
         runner = StageRunner(ckpt, logs, max_workers=max_workers, sleep=lambda _: None)
     else:
         runner = StageRunner(ckpt, logs, max_workers=max_workers)
 
-    user_fn = extract_user_for_unit or (lambda u: u.get("extract_text") or u["text"])
-
     extraction: dict[str, dict] = {}
-    for kind in kinds:
-        def _user(u, k=kind, fn=user_fn, fake=isinstance(client, FakeClient)):
-            body = fn(u)
-            if fake:
-                return body
-            return f"Extract kind={k}. Reply with '- phrase || quote' lines or NO_{k.upper()}.\n\n{body}"
+    if phrases is not None:
+        verified = phrases.copy().reset_index(drop=True)
+        if "format" not in verified.columns and "group" in verified.columns:
+            verified["format"] = verified["group"]
+        verified.to_csv(tables / "phrases.csv", index=False)
+    else:
+        user_fn = extract_user_for_unit or (lambda u: u.get("extract_text") or u["text"])
 
-        work = make_extract_work(
-            client,
-            kind=kind,
-            system=extract_system,
-            user_for_unit=_user,
-            model=extract_model,
-            sentinel=f"NO_{kind.upper()}",
-            quote_threshold=0.8,
-        )
-        extraction[kind] = runner.run(
-            f"extract_{kind}",
-            units,
-            lambda u: u["unit_id"],
-            work,
-            f"extract|{kind}|{extract_model}|v1",
-            quiet=quiet,
-        )
+        for kind in kinds:
+            def _user(u, k=kind, fn=user_fn, fake=isinstance(client, FakeClient)):
+                body = fn(u)
+                if fake:
+                    return body
+                return (
+                    f"Extract kind={k}. Reply with '- phrase || quote' lines "
+                    f"or NO_{k.upper()}.\n\n{body}"
+                )
 
-    phrases = phrase_table(
-        extraction,
-        units_by_id,
-        kinds=list(kinds),
-        extra_unit_fields=["format", "group"],
-    )
-    verified = phrases[phrases.verified] if "verified" in phrases.columns else phrases
-    if len(verified) < 6:
-        verified = phrases
-    verified = verified.reset_index(drop=True)
-    verified.to_csv(tables / "phrases.csv", index=False)
+            work = make_extract_work(
+                client,
+                kind=kind,
+                system=extract_system,
+                user_for_unit=_user,
+                model=extract_model,
+                sentinel=f"NO_{kind.upper()}",
+                quote_threshold=0.8,
+            )
+            extraction[kind] = runner.run(
+                f"extract_{kind}",
+                units,
+                lambda u: u["unit_id"],
+                work,
+                f"extract|{kind}|{extract_model}|v1",
+                quiet=quiet,
+            )
+
+        phrases = phrase_table(
+            extraction,
+            units_by_id,
+            kinds=list(kinds),
+            extra_unit_fields=["format", "group"],
+        )
+        verified = phrases[phrases.verified] if "verified" in phrases.columns else phrases
+        if len(verified) < 6:
+            verified = phrases
+        verified = verified.reset_index(drop=True)
+        verified.to_csv(tables / "phrases.csv", index=False)
 
     if "format" not in verified.columns and "group" in verified.columns:
         verified["format"] = verified["group"]
@@ -478,9 +543,25 @@ def run_formats_complexity_demo(
         f: [u["unit_id"] for u in units if (u.get("format") or u.get("group")) == f]
         for f in formats
     }
-    yield_report(extraction, by_format, kinds=list(kinds)).to_csv(
-        tables / "yield.csv", index=False
-    )
+    if extraction:
+        yield_report(extraction, by_format, kinds=list(kinds)).to_csv(
+            tables / "yield.csv", index=False
+        )
+    else:
+        # phrases_from_units path: yield by kind × format from the table
+        yd_rows = []
+        for kind in verified["kind"].dropna().unique():
+            for fmt in formats:
+                sub = verified[(verified["kind"] == kind) & (verified["format"] == fmt)]
+                yd_rows.append(
+                    {
+                        "kind": kind,
+                        "group": fmt,
+                        "units": len(by_format.get(fmt, [])),
+                        "kept": int(len(sub)),
+                    }
+                )
+        pd.DataFrame(yd_rows).to_csv(tables / "yield.csv", index=False)
 
     emb = Embedder(ckpt, client, embed_model)
     E = emb(verified.phrase.tolist())
@@ -503,11 +584,16 @@ def run_formats_complexity_demo(
         lambda cu: cu["key"],
         make_label_work(
             client,
-            system="label",
+            system=TOPIC_LABEL_SYSTEM,
             prompt_template=label_tmpl,
             model=label_model,
         ),
-        f"labels|k{k_eff}|{label_model}|json-v3|{hash(label_tmpl) & 0xFFFF:x}",
+        label_stage_fingerprint(
+            label_model,
+            system=TOPIC_LABEL_SYSTEM,
+            prompt=label_tmpl,
+            extra=f"k{k_eff}|json-v3",
+        ),
         quiet=quiet,
     )
     names = {
@@ -811,7 +897,7 @@ def run_formats_complexity_demo(
         "label_stage_missing": label_missing,
         "lens_stage_missing": lens_missing,
         "gold_argument_rows": int(len(gold_cmp)),
-        "analogy": "ai-dialogue-formats Address stack on public/synthetic stand-in",
+        "analogy": "ai-dialogue-formats Address stack on public format pair",
         "subject_grain": grain_lock,
         "multiverse_dims": list(multi_dims),
         "resolution_k_sweep": (
@@ -825,8 +911,13 @@ def run_formats_complexity_demo(
 
 def main(argv: list[str] | None = None) -> int:
     import argparse
+    import os
 
-    p = argparse.ArgumentParser(description="Run multilogue validation on synthetic units only.")
+    from .extract import phrases_from_units
+
+    p = argparse.ArgumentParser(
+        description="Run multilogue smoke validation on the public CIMT format pair."
+    )
     p.add_argument(
         "--out",
         type=Path,
@@ -841,10 +932,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Run formats-complexity demo instead of the basic smoke experiment",
     )
     args = p.parse_args(argv)
+    os.environ.setdefault("MULTILOGUE_ACCESS_YES", "1")
+    units, meta = load_cimt_format_pair(max_units_per=40)
+    if units is None:
+        raise SystemExit(f"CIMT Access failed: {meta.get('error', 'unknown')}")
+    phrases = phrases_from_units(units, extra_fields=["group", "format"])
+    quiet = not args.verbose
     if args.formats_demo:
-        summary = run_formats_complexity_demo(args.out, quiet=not args.verbose)
+        summary = run_formats_complexity_demo(
+            args.out, units=units, phrases=phrases, quiet=quiet
+        )
     else:
-        summary = run_validation_experiment(args.out, quiet=not args.verbose)
+        summary = run_validation_experiment(
+            args.out, units=units, phrases=phrases, quiet=quiet
+        )
     print(json.dumps(summary, indent=2))
     return 0
 

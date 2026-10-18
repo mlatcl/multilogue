@@ -9,7 +9,7 @@ import json
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -281,6 +281,77 @@ def example_phrases_for_clusters(
     return cluster_units
 
 
+def _first_string(value: Any) -> str | None:
+    """Pull a usable string out of messy model JSON (str / list / dict)."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        s = value.strip()
+        return s or None
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            got = _first_string(item)
+            if got:
+                return got
+        return None
+    if isinstance(value, dict):
+        for key in ("label", "title", "name", "thema", "überschrift", "heading"):
+            if key in value:
+                got = _first_string(value.get(key))
+                if got:
+                    return got
+        for v in value.values():
+            got = _first_string(v)
+            if got:
+                return got
+    return None
+
+
+def coerce_topic_label(
+    raw: Any,
+    *,
+    examples: Sequence[str] | None = None,
+    cluster_id: int | None = None,
+) -> str:
+    """Human-readable topic title; never leave ``?`` / empty / list dumps."""
+    bad = {"?", "…", "...", "unnamed", "unnamed / stale", "null", "none"}
+    sentiment = {"positive", "neutral", "negative", "mixed"}
+    # Sentiment-tag lists are a known model failure mode — ignore them
+    if isinstance(raw, (list, tuple)) and raw:
+        if all(str(x).strip().lower() in sentiment for x in raw):
+            raw = None
+    label = _first_string(raw)
+    if label:
+        # Reject stringified JSON lists / obvious junk
+        if label.startswith("[") and "]" in label:
+            label = None
+        elif label.lower() in bad or label.lower() in sentiment:
+            label = None
+        elif label.endswith(" → ?") or " → ?" in label:
+            label = None
+        elif "→ (unnamed)" in label or label.endswith("(unnamed)"):
+            label = None
+        elif len(label) > 80:
+            label = label[:80].rstrip()
+    if not label:
+        ex = list(examples or [])
+        if ex:
+            words = re.findall(r"\w+", str(ex[0]), flags=re.UNICODE)
+            label = " ".join(words[:6]) if words else str(ex[0])[:60]
+        elif cluster_id is not None:
+            label = f"topic {int(cluster_id)}"
+        else:
+            label = "untitled topic"
+    return label[:80]
+
+
+def coerce_topic_description(raw: Any) -> str:
+    desc = _first_string(raw)
+    if not desc:
+        return ""
+    return desc[:400]
+
+
 def make_label_work(
     client,
     *,
@@ -289,18 +360,59 @@ def make_label_work(
     model: str,
     phrases_placeholder: str = "<<PHRASES>>",
 ) -> Callable[[dict], dict]:
+    """Build a labelling callable.
+
+    Prompt / model / system live on a mutable ``work.config`` dict so the
+    subject-grain UI can change them without reconstructing the shell.
+    """
+    config: dict[str, str] = {
+        "system": system,
+        "prompt_template": prompt_template,
+        "model": model,
+        "phrases_placeholder": phrases_placeholder,
+    }
+
     def work(cu: dict) -> dict:
-        user = prompt_template.replace(
-            phrases_placeholder, "\n".join(f"- {p}" for p in cu["examples"])
+        examples = list(cu.get("examples") or [])
+        ph = config.get("phrases_placeholder") or "<<PHRASES>>"
+        user = config["prompt_template"].replace(
+            ph, "\n".join(f"- {p}" for p in examples)
         )
-        d = parse_json(
-            client.complete("cluster_label", system, user, model=model, json_mode=True)
+        text = client.complete(
+            "cluster_label",
+            config["system"],
+            user,
+            model=config["model"],
+            json_mode=True,
         )
+        if not (text or "").strip():
+            raise ValueError("empty cluster_label reply from model")
+        d = parse_json(text)
+        if not isinstance(d, dict):
+            d = {}
+        # Accept common alternate keys from multilingual models
+        raw_label = d.get("label")
+        if raw_label is None:
+            for key in ("title", "name", "thema", "überschrift", "heading"):
+                if key in d:
+                    raw_label = d[key]
+                    break
+        raw_desc = d.get("description")
+        if raw_desc is None:
+            for key in ("desc", "summary", "beschreibung"):
+                if key in d:
+                    raw_desc = d[key]
+                    break
+        cid = int(cu.get("cluster", -1))
         return {
-            "label": str(d.get("label", f"cluster {cu['cluster']}"))[:80],
-            "description": str(d.get("description", "")),
+            "label": coerce_topic_label(
+                raw_label, examples=examples, cluster_id=cid
+            ),
+            "description": coerce_topic_description(raw_desc),
         }
 
+    work.config = config  # type: ignore[attr-defined]
+    work.client = client  # type: ignore[attr-defined]
     return work
 
 

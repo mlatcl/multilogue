@@ -99,6 +99,11 @@ def test_propose_split_increases_k():
     np.testing.assert_allclose(out["fit"]["responsibilities"].sum(axis=1), 1.0, atol=1e-6)
     assert len(out["dirty"]) == 2
     assert out["history_entry"]["action"] == "split"
+    assert out["parent_id"] == big
+    assert out["parent_mass"].shape == (X.shape[0],)
+    assert out["parent_component_fit"] is not None
+    assert "mu" in out["parent_component_fit"]
+    assert out["local_fit"]["k"] == 2
 
 
 def test_merge_then_split_recovers_separable_structure():
@@ -125,6 +130,25 @@ def test_topic_catalogue_deterministic_and_dirty_flag():
     assert list(cat_a["examples"]) == list(cat_b["examples"])
     assert bool(cat_a.loc[cat_a["topic"] == 1, "dirty"].iloc[0]) is True
     assert bool(cat_a.loc[cat_a["topic"] == 0, "dirty"].iloc[0]) is False
+    assert "parent_label" in cat_a.columns
+    assert "proposed" in cat_a.columns
+
+
+def test_topic_catalogue_parent_label_and_proposed():
+    X, _ = _planted_blobs(seed=16, k=2)
+    fit = mppca_fit(X, k=2, sigma2=0.1, seed=16, max_iter=20)
+    phrases = [f"phrase-{i}" for i in range(len(X))]
+    cat = topic_catalogue(
+        phrases,
+        fit["responsibilities"],
+        labels=["keep", "split-a"],
+        parent_labels={1: "Original LLM name"},
+        proposed=[1],
+        seed=16,
+    )
+    row = cat.loc[cat["topic"] == 1].iloc[0]
+    assert row["parent_label"] == "Original LLM name"
+    assert bool(row["proposed"]) is True
 
 
 def test_topic_fit_view_finite(tmp_path: Path):
@@ -141,6 +165,8 @@ def test_topic_fit_view_finite(tmp_path: Path):
         X,
         fit["responsibilities"],
         fit["means"],
+        focus=1,
+        component_fits=fit["component_fits"],
         path=path,
         show=False,
     )
@@ -148,11 +174,49 @@ def test_topic_fit_view_finite(tmp_path: Path):
     assert path.exists()
 
 
+def test_topic_fit_view_uses_local_uq(tmp_path: Path):
+    """Panel axes are the focus component's U_q, not a global PCA."""
+    pytest.importorskip("matplotlib")
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from multilogue.viz import _component_local_plane, topic_fit_view
+
+    X, _ = _planted_blobs(seed=8, k=3)
+    fit = mppca_fit(X, k=3, sigma2=0.1, seed=8, max_iter=25)
+    focus = 0
+    R = fit["responsibilities"]
+    plane = _component_local_plane(X, R[:, focus], fit["component_fits"][focus])
+    assert plane is not None
+    mu, U, scales, q_model = plane
+    assert U.shape == (X.shape[1], 2)
+    assert scales.shape == (2,)
+    # Local plane origin should match the component mean (up to L2 renorm of fit means)
+    assert np.allclose(mu, fit["component_fits"][focus]["mu"], atol=1e-6)
+    _ = q_model
+    out = topic_fit_view(
+        X, R, fit["means"], focus=focus, component_fits=fit["component_fits"],
+        path=tmp_path / "local.png", show=False,
+    )
+    assert out is not None
+    # Changing focus must request a different component_fit (smoke: still draws)
+    out2 = topic_fit_view(
+        X, R, fit["means"], focus=1, component_fits=fit["component_fits"],
+        path=tmp_path / "local1.png", show=False,
+    )
+    assert out2 is not None
+
+
 def test_formats_demo_writes_subject_grain_lock(tmp_path: Path):
+    from multilogue.experiment import format_tagged_units
+    from multilogue.extract import phrases_from_units
+
+    units = format_tagged_units(n_docs_per_group=3, units_per_doc=2)
+    phrases = phrases_from_units(units, extra_fields=["group", "format"])
     summary = run_formats_complexity_demo(
         tmp_path / "fmt",
-        n_docs_per_group=3,
-        units_per_doc=2,
+        units=units,
+        phrases=phrases,
         k=4,
         lens_runs=2,
         quiet=True,
@@ -167,10 +231,15 @@ def test_formats_demo_writes_subject_grain_lock(tmp_path: Path):
 
 
 def test_formats_demo_k_grid_one_factor_sweep(tmp_path: Path):
+    from multilogue.experiment import format_tagged_units
+    from multilogue.extract import phrases_from_units
+
+    units = format_tagged_units(n_docs_per_group=3, units_per_doc=2)
+    phrases = phrases_from_units(units, extra_fields=["group", "format"])
     summary = run_formats_complexity_demo(
         tmp_path / "fmt_k",
-        n_docs_per_group=3,
-        units_per_doc=2,
+        units=units,
+        phrases=phrases,
         k=4,
         lens_runs=2,
         quiet=True,

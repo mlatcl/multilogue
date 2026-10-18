@@ -5,9 +5,10 @@ notebook** style: methodological prose and equations first, then separate cells
 for library imports, computation, and figures, with interpretive markdown after
 each visualisation.
 
-Default path: **synthetic units + FakeClient** (no API key). Soft / formats
-notebooks install `pot` when missing. Optional live LLM cells run only when
-`OPENAI_API_KEY` is set.
+Labels / embeds use **OpenAI from the repo-root `.env`** when `OPENAI_API_KEY`
+is set (cwd may be `notebooks/`). FakeClient only with `MULTILOGUE_FORCE_FAKE=1`
+(CI / smoke) — not a silent default. Soft / formats notebooks
+install `pot` when missing.
 
 | Notebook | Topic |
 |----------|--------|

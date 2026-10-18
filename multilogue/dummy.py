@@ -105,8 +105,23 @@ class FakeClient:
                 return f"NO_{kind.upper()}"
             return "\n".join(f"- {' '.join(s.split()[:6])} || {s}" for s in found)
         if stage == "cluster_label":
-            h = hashlib.md5(user.encode()).hexdigest()[:4]
-            return json.dumps({"label": f"topic {h}", "description": "a synthetic topic"})
+            # Human-readable stub from exemplar bullets (CI / no API key).
+            bullets = re.findall(r"(?m)^\s*[-•*]\s+(.+)$", user)
+            if not bullets:
+                bullets = [
+                    ln.strip()
+                    for ln in user.splitlines()
+                    if ln.strip() and not ln.strip().lower().startswith(
+                        ("label", "summarise", "return json", "phrases:")
+                    )
+                ]
+            first = bullets[0] if bullets else "untitled topic"
+            words = re.findall(r"\w+", first, flags=re.UNICODE)
+            label = " ".join(words[:6]) if words else "untitled topic"
+            if len(words) > 6:
+                label += "…"
+            desc = "; ".join(b[:80] for b in bullets[:2]) or "synthetic topic from exemplars"
+            return json.dumps({"label": label[:80], "description": desc[:200]})
         if stage == "lens":
             ids = [int(m) for m in re.findall(r"^(\d+):", user, re.M)]
             return json.dumps(
@@ -123,7 +138,7 @@ class FakeClient:
         out = []
         for t in texts:
             v = np.zeros(32, dtype=np.float64)
-            for w in re.findall(r"[a-z]+", t.lower()):
+            for w in re.findall(r"\w+", t.lower(), flags=re.UNICODE):
                 v[int(hashlib.md5(w.encode()).hexdigest(), 16) % 32] += 1
             out.append((v + 0.01).tolist())
         return out
