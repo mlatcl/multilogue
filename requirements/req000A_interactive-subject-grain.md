@@ -53,19 +53,25 @@ needs a defensible topic catalogue before claiming stability of \(\ell\).
       metric
 - [ ] Analysts can view a soft-topic **LLM catalogue** (exemplars + summary) for
       the same bags
-- [ ] Analysts can request **merge** and **split** of topics and see **both**
-      updated geometry and catalogues for parent / children (or merged bag)
+- [ ] Analysts can request **merge** and **split** of topics and see updated
+      geometry immediately; LLM catalogues refresh for affected bags without
+      requiring a full re-run of Address
+- [ ] Live exploration supports undo and an explicit lock action (notebook shell
+      or equivalent); labelling of changed topics is on demand, not forced on
+      every structural click
 - [ ] A locked subject grain is an explicit artefact handed to Address
 - [ ] Formats (or equivalent) multiverse does not let a wide \(k\) grid dominate
       variance shares by default
-- [ ] Offline / FakeClient path remains usable for pedagogy and CI
+- [ ] Offline / FakeClient path remains usable for pedagogy and CI without widgets
 
 ## Notes
 
 LLM topic names are reading aids over exemplars (format-blind harden view), not
 ground truth and not an automatic selector of \(k\). Fit visualisation is
-required alongside catalogues; a full click-on-canvas GUI is not required if
-notebook-driven merge/split still re-draws the Bishop–Tipping-style view.
+required alongside catalogues. Live try-combinations UX is an **ipywidgets**
+notebook shell (merge/split/undo/lock) with **label-on-demand** for dirty
+topics — not auto-LLM on every click, and not click-on-canvas in v1. A
+scripted non-widget path must remain for CI / FakeClient.
 
 ## References
 
@@ -81,3 +87,6 @@ visualisation** and LLM merge/split catalogues are both required Assess views.
 
 CIP-0009 Accepted → In Progress; backlog tasks Ready (lock/multiverse, library
 viz+merge/split, notebook Assess section).
+
+CIP-0009 amended: Interaction shell (ipywidgets Layer B, label-on-demand, undo);
+backlog split Layer A vs Layer B.

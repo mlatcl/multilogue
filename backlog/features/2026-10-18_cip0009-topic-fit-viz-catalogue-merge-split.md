@@ -1,6 +1,6 @@
 ---
 id: "2026-10-18_cip0009-topic-fit-viz-catalogue-merge-split"
-title: "CIP-0009: topic fit visualisation, catalogue, merge/split helpers"
+title: "CIP-0009: Layer A topic fit viz, catalogue, merge/split (no UI)"
 status: "Ready"
 priority: "High"
 created: "2026-10-18"
@@ -18,21 +18,21 @@ tags:
 - eda
 ---
 
-# Task: Topic fit viz + catalogue + merge/split
+# Task: Layer A — topic fit viz + catalogue + merge/split
 
-> **Note**: Backlog tasks are DOING the work defined in CIPs (HOW).
+> **Note**: Pure model/viz APIs. No ipywidgets in this task (that is Layer B).
 
 ## Description
 
-Implement Assess-owned library helpers for the Bishop–Tipping dual view:
+Implement Assess-owned **Layer A** helpers for the Bishop–Tipping dual view:
 
 1. **Fit visualisation** — 2-D latent / mixture view of the current soft fit
    (points, soft membership cues, component means; parent/child panels after
    split). Recomputable after fit / merge / split.
-2. **Topic catalogue** — table of exemplars (+ optional LLM label fields) for
-   the same bags.
-3. **`propose_merge` / `propose_split`** — update soft state for discrete human
-   actions; return bags to re-plot and re-label.
+2. **Topic catalogue** — table of exemplars (+ optional label fields + dirty
+   flag column) for the same bags.
+3. **`propose_merge` / `propose_split`** — update soft state; return dirty topic
+   ids for later labelling (do **not** call the LLM here).
 
 Machine-screen diagnostics (collapse, tiny mass, mean max-\(r\), entropy) may
 be surfaced alongside; they do not auto-choose grain.
@@ -42,27 +42,28 @@ be surfaced alongside; they do not auto-choose grain.
 - [ ] Viz helper produces finite 2-D coords and responsibility-aware colouring
 - [ ] Catalogue helper is deterministic given seed / exemplars
 - [ ] Merge and split update responsibilities (or equivalent) without raising on
-      synthetic planted mixtures
+      synthetic planted mixtures; return dirty ids
 - [ ] Unit tests cover viz finiteness, catalogue stability, merge-then-split
       recovery of separable structure
-- [ ] No dependence on format-gap \(\ell\) or other Address metrics
+- [ ] No `ipywidgets` import; no dependence on format-gap \(\ell\)
 
 ## Implementation Notes
 
-- Prefer additives on `viz` / `mppca` / thin `assess` module; Assess ownership
-  of the *loop* matters more than file name.
-- v1 is API + matplotlib figures, not a click-canvas GUI.
-- Reuse existing exemplar / label plumbing where possible; LLM calls stay at
-  the notebook/StageRunner edge.
+- Prefer additives on `viz` / `mppca` / thin `assess` module.
+- LLM calls stay at StageRunner / Layer B edge only.
+- Follow-on: `2026-10-18_cip0009-ipywidgets-interaction-shell`.
 
 ## Related
 
 - CIP: 0009
 - REQ: 000A
-- Follow-on: notebook Assess section task
+- Follow-on: Layer B widget shell; notebook Assess section
 
 ## Progress Updates
 
 ### 2026-10-18
 
 Task created (Ready) when CIP-0009 Accepted.
+
+Clarified as **Layer A only** after interaction-shell design amendment
+(widgets moved to separate backlog task).

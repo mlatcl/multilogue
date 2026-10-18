@@ -1,6 +1,6 @@
 ---
 id: "2026-10-18_cip0009-notebook-assess-subject-grain"
-title: "CIP-0009: notebook Assess subject-grain section (viz + LLM)"
+title: "CIP-0009: notebook Assess subject-grain section (shell + fallback)"
 status: "Ready"
 priority: "High"
 created: "2026-10-18"
@@ -10,6 +10,7 @@ related_cips: ["0009"]
 owner: "Neil Lawrence"
 dependencies:
 - "2026-10-18_cip0009-topic-fit-viz-catalogue-merge-split"
+- "2026-10-18_cip0009-ipywidgets-interaction-shell"
 - "2026-10-18_cip0009-lock-artefact-multiverse-k"
 tags:
 - backlog
@@ -21,46 +22,46 @@ tags:
 
 # Task: Notebook Assess subject-grain section
 
-> **Note**: Backlog tasks are DOING the work defined in CIPs (HOW).
+> **Note**: Wires Layer B shell (or Layer A fallback) into builder notebooks.
 
 ## Description
 
 Via `scripts/build_notebooks.py` (primary source), add an Assess section for
 interactive subject grain (formats 09 and/or cluster 03):
 
-- Prose: human grain, Bishop–Tipping dual view, Assess vs Address boundary
-- Side-by-side **fit visualisation** and **LLM catalogue**
-- Scripted merge/split demo (synthetic or cached) that refreshes both views
-- Explicit lock cell (`PRIMARY_K` / lock artefact) before Address
-- Address 5e prose: multiverse holds \(k\) or \(\pm 1\) only; not a wide
-  resolution rewrite
+- Prose: human grain, Bishop–Tipping dual view, Assess vs Address, **label-on-demand**
+- Prefer mounting the **ipywidgets shell** when import succeeds
+- Else Layer A scripted cells (merge/split by id → re-plot → optional name dirty)
+- Explicit lock before Address
+- Address 5e prose: multiverse holds \(k\) or \(\pm 1\) only
 - Document human lock before live CIMT Address spend
 
-Regenerate notebooks; keep FakeClient / smoke path non-interactive (scripted
-keep or default lock).
+Regenerate notebooks; smoke path must use non-widget / FakeClient scripted lock.
 
 ## Acceptance Criteria
 
-- [ ] Builder emits Assess subject-grain section with viz + catalogue
+- [ ] Builder emits Assess subject-grain section with dual-view prose
+- [ ] Widget shell mounted when available; documented fallback otherwise
 - [ ] Address multiverse prose matches locked-\(k\) defaults
 - [ ] Notebooks regenerated from builder
-- [ ] Offline smoke / FakeClient path green without human input
+- [ ] Offline smoke / FakeClient path green without human input or widgets
 - [ ] Live CIMT path documents lock-before-spend
 
 ## Implementation Notes
 
 - Do not hand-edit `.ipynb` as primary source.
-- Depends on library helpers and lock/multiverse default tasks.
+- Depends on Layer A, Layer B, and lock/multiverse tasks.
 
 ## Related
 
 - CIP: 0009
 - REQ: 000A
-- Depends on: `2026-10-18_cip0009-topic-fit-viz-catalogue-merge-split`,
-  `2026-10-18_cip0009-lock-artefact-multiverse-k`
+- Depends on: Layer A, Layer B shell, lock artefact
 
 ## Progress Updates
 
 ### 2026-10-18
 
 Task created (Ready) when CIP-0009 Accepted.
+
+Updated dependencies to include Layer B ipywidgets shell after design amendment.
